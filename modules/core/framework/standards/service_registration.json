@@ -1,0 +1,31 @@
+{
+  "id": "service_registration",
+  "name": "Service Registration Pattern",
+  "version": "2.0.0",
+  "description": "Standard for registering services using @register_service decorator pattern",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Use @register_service decorator to declare services",
+    "Use descriptive service names following module.service pattern",
+    "Services are automatically registered by decorator system during module loading"
+  ],
+  "validation": {
+    "file_targets": {
+      "decorator_registration": ["api.py"],
+      "service_naming": ["api.py"]
+    },
+    "match_requirements": {
+      "decorator_registration": "either",
+      "service_naming": "either"
+    },
+    "patterns": {
+      "decorator_registration": "@register_service\\s*\\(\\s*['\"][^'\"]+['\"]",
+      "service_naming": "@register_service\\s*\\(\\s*['\"][a-zA-Z0-9_.]+\\.service['\"]"
+    },
+    "anti_patterns": [
+      "@register_service\\s*\\(\\s*['\"][^.]*['\"]"
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "The Service Registration Pattern v2.0 uses the @register_service decorator to declare services declaratively. This modern approach eliminates manual service registration calls and integrates with the Service Method Discovery system. Services are automatically registered during module loading, and service names should follow the module.service naming convention for consistency and discoverability."
+}

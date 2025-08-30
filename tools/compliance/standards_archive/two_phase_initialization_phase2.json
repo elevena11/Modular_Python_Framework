@@ -1,0 +1,33 @@
+{
+  "id": "decorator_initialization_phase2",
+  "name": "Decorator-Based Initialization Phase 2", 
+  "version": "3.0.0",
+  "description": "Standard validating v3.0.0 decorator-based Phase 2 setup implementation for complex modules",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Register post-init hook in Phase 1 for Phase 2 operations",
+    "Implement Phase 2 in setup_phase2(self) async method within decorated class",
+    "Use register_post_init_hook with proper priority and dependencies",
+    "Check dependencies in Phase 2 before using them"
+  ],
+  "validation": {
+    "file_targets": {
+      "setup_hook_registration": ["api.py"],
+      "phase2_implementation": ["api.py"]
+    },
+    "match_requirements": {
+      "setup_hook_registration": "either",
+      "phase2_implementation": "either"
+    },
+    "patterns": {
+      "setup_hook_registration": "register_post_init_hook\\s*\\([\\s\\S]*?priority[\\s\\S]*?dependencies[\\s\\S]*?\\)",
+      "phase2_implementation": "async\\s+def\\s+setup_phase2\\s*\\(\\s*self\\s*\\)\\s*->\\s*bool\\s*:"
+    },
+    "anti_patterns": [
+      "async\\s+def\\s+setup_module\\s*\\(\\s*app_context\\s*\\)",
+      "app_context\\.register_module_setup_hook"
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "v3.0.0 Phase 2 initialization uses decorator-based class methods with modern hook registration patterns. The setup_phase2 method handles complex initialization after foundation services are ready.\n\nKey changes from v2.0.0:\n- Uses async setup_phase2(self) -> bool method instead of setup_module(app_context) function\n- Uses register_post_init_hook instead of register_module_setup_hook\n- Class-based approach within decorated module class\n- Explicit priority and dependencies specification\n- Returns bool to indicate success/failure\n\nThis pattern provides better control over initialization order and integrates with the decorator-based architecture for consistent module management."
+}

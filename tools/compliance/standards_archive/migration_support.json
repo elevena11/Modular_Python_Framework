@@ -1,0 +1,32 @@
+{
+  "id": "migration_support",
+  "name": "Migration Support",
+  "version": "1.0.0",
+  "description": "Standard for proper database migration support",
+  "owner_module": "core.database",
+  "requirements": [
+    "Properly register models with the application context",
+    "Use Base class from database module for model definitions"
+  ],
+  "validation": {
+    "file_targets": {
+      "model_definition": ["db_models.py"],
+      "model_registration": ["api.py"]
+    },
+    "match_requirements": {
+      "model_definition": "either",
+      "model_registration": "either"
+    },
+    "patterns": {
+      "model_definition": "class\\s+\\w+\\s*\\(\\s*Base\\s*\\)",
+      "model_registration": "app_context\\.register_models\\s*\\(\\s*\\["
+    },
+    "anti_patterns": [
+      "\\w+\\.__table__\\.create\\s*\\(",
+      "Base\\.metadata\\.create_all\\s*\\(",
+      "db_service\\.engine\\.create_all\\s*\\("
+    ]
+  },
+  "section": "Database Standards",
+  "documentation": "Ensures modules properly support database migrations by registering models with the application context and following migration-compatible patterns. This standard applies only to modules that define database models."
+}

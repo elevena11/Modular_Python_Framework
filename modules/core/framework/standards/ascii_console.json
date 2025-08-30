@@ -1,0 +1,22 @@
+{
+  "id": "ascii_console_output",
+  "name": "Terminal-Compatible Text Encoding",
+  "version": "2.0.0",
+  "description": "Standard requiring terminal-compatible text encoding (ASCII + ANSI escape sequences)",
+  "owner_module": "core.framework",
+  "requirements": [
+    "All text content must use ASCII characters only",
+    "ANSI color escape sequences are permitted",
+    "Unicode characters (emojis, symbols) are not allowed",
+    "Documentation files must be terminal-compatible",
+    "Code comments must use ASCII-only text"
+  ],
+  "validation": {
+    "regex": "^([\\x00-\\x7F]|\\x1B\\[[0-9;]*[mK])*$",
+    "explanation": "Matches ASCII characters (0-127) and ANSI color escape sequences",
+    "file_targets": {
+      "ascii_console": ["*.py", "*.md"]
+    }
+  },
+  "documentation": "Ensures all text content is compatible with terminal environments and command-line tools. Unicode characters like emojis can cause encoding issues, display problems, and break automated tools. ANSI color escape sequences are allowed for terminal formatting."
+}

@@ -1,0 +1,34 @@
+{
+  "id": "error_prevention_service_init_failed",
+  "name": "Error Prevention: SERVICE_INIT_FAILED",
+  "version": "1.0.0",
+  "description": "Standard to prevent recurring SERVICE_INIT_FAILED errors",
+  "owner_module": "core.compliance",
+  "analysis": {
+    "total_occurrences": 325,
+    "affected_modules": [
+      "standard.llm_memory_databases",
+      "standard.veritas_knowledge_graph",
+      "standard.llm_memory_processing",
+      "standard.llm_agent",
+      "core.model_manager"
+    ],
+    "common_locations": [],
+    "error_codes": [
+      "standard_veritas_knowledge_graph_SERVICE_INIT_FAILED",
+      "standard_llm_agent_SERVICE_INIT_FAILED",
+      "standard_llm_memory_databases_SERVICE_INIT_FAILED",
+      "standard_llm_memory_processing_SERVICE_INIT_FAILED",
+      "core_model_manager_SERVICE_INIT_FAILED"
+    ]
+  },
+  "requirements": [],
+  "validation": {
+    "patterns": {},
+    "file_targets": {},
+    "match_requirements": {},
+    "anti_patterns": []
+  },
+  "section": "Error Prevention Standards",
+  "documentation": "This standard was generated based on analysis of 325 error occurrences across 5 modules."
+}

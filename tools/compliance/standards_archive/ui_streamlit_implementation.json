@@ -1,0 +1,25 @@
+{
+  "id": "ui_streamlit_implementation",
+  "name": "UI Streamlit Implementation",
+  "version": "1.0.0",
+  "description": "Standard for Streamlit UI implementation",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Module must provide a Streamlit UI implementation file",
+    "UI components must be registered using the standard pattern",
+    "All UI elements must have proper type, id, display_name, and render_function"
+  ],
+  "validation": {
+    "file_targets": {
+      "streamlit_implementation": ["ui/ui_streamlit.py"]
+    },
+    "match_requirements": {
+      "streamlit_implementation": "all"
+    },
+    "patterns": {
+      "streamlit_implementation": "def\\s+register_components\\s*\\(\\s*ui_context\\s*\\)[\\s\\S]*?ui_context\\.register_element\\s*\\(\\s*\\{[\\s\\S]*?\"type\"[\\s\\S]*?\"id\"[\\s\\S]*?\"display_name\"[\\s\\S]*?\"render_function\""
+    }
+  },
+  "section": "UI Standards",
+  "documentation": "Ensures modules provide proper Streamlit UI implementation with standard component registration pattern. Modules with UI functionality must implement ui/ui_streamlit.py with register_components() function that uses ui_context.register_element() to register UI components."
+}

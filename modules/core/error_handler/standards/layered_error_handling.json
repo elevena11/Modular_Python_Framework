@@ -1,0 +1,71 @@
+{
+  "id": "layered_error_handling",
+  "name": "Layered Error Handling",
+  "version": "2.0.0",
+  "description": "Standard for consistent, layer-appropriate error handling throughout the framework",
+  "owner_module": "core.error_handler",
+  "requirements": [
+    "API endpoints must use create_error_response for HTTP errors",
+    "Service methods must use Result pattern for returns",
+    "Internal logging must use error_message for standardized format",
+    "Each layer must use the appropriate error handling mechanism"
+  ],
+  "validation": {
+    "standard_mode": {
+      "description": "Educational validation - encourages learning framework patterns",
+      "file_targets": {
+        "api_error_handling": ["api.py"],
+        "service_error_handling": ["services.py"],
+        "internal_error_logging": ["*.py"]
+      },
+      "match_requirements": {
+        "api_error_handling": "all",
+        "service_error_handling": "all",
+        "internal_error_logging": "either"
+      },
+      "patterns": {
+        "api_error_handling": "(?:create_error_response\\s*\\(\\s*['\"][A-Z_]+['\"]|from\\s+core\\.error_utils\\s+import\\s+[^\\n]*create_error_response)",
+        "service_error_handling": "(?:Result\\.(?:success|error)\\s*\\(|from\\s+core\\.error_utils\\s+import\\s+[^\\n]*Result)",
+        "internal_error_logging": "(?:error_message\\s*\\(\\s*['\"][A-Z_]+['\"]|from\\s+core\\.error_utils\\s+import\\s+[^\\n]*error_message)"
+      }
+    },
+    "comprehensive_mode": {
+      "description": "Production validation - enforces architectural correctness",
+      "file_targets": {
+        "api_error_handling": ["api.py"],
+        "service_error_handling": ["services.py"],
+        "internal_error_logging": ["*.py"]
+      },
+      "match_requirements": {
+        "api_error_handling": "all",
+        "service_error_handling": "all", 
+        "internal_error_logging": "either"
+      },
+      "required_patterns": {
+        "api_imports": "from\\s+core\\.error_utils\\s+import\\s+[^\\n]*create_error_response",
+        "api_usage": "create_error_response\\s*\\(\\s*['\"][A-Z_]+['\"]",
+        "service_imports": "from\\s+core\\.error_utils\\s+import\\s+[^\\n]*Result",
+        "service_usage": "Result\\.(?:success|error)\\s*\\(",
+        "logging_usage": "(?:error_message\\s*\\(\\s*['\"][A-Z_]+['\"]|from\\s+core\\.error_utils\\s+import\\s+[^\\n]*error_message)"
+      },
+      "required_pattern_targets": {
+        "api_imports": ["api.py"],
+        "api_usage": ["api.py"],
+        "service_imports": ["services.py"],
+        "service_usage": ["services.py"],
+        "logging_usage": ["*.py"]
+      },
+      "anti_patterns": [
+        "raise\\s+HTTPException\\s*\\(",
+        "return\\s+HTTPException\\s*\\(",
+        "raise\\s+Exception\\s*\\(",
+        "return\\s+\\{['\"]error['\"]:",
+        "return\\s+\\{['\"]message['\"]:",
+        "services\\.py[\\s\\S]*?create_error_response",
+        "database\\.py[\\s\\S]*?create_error_response"
+      ],
+      "anti_pattern_targets": ["*.py"]
+    }
+  },
+  "documentation": "This standard ensures that each layer of the application uses the appropriate error handling mechanism. The framework provides three primary error handling tools:\n\n1. `create_error_response`: For API endpoints to return standardized HTTP errors to clients\n2. `Result.success()/Result.error()`: For service methods to return standardized success/error results\n3. `error_message`: For internal logging of errors in a consistent format\n\nEach layer should use the appropriate tool for its context. API endpoints use create_error_response because they interact with external clients. Service methods use the Result pattern because they need to return structured information to callers. Internal operations use error_message for logging because they need to record errors without necessarily returning them.\n\nThis layered approach ensures that errors are handled consistently and appropriately throughout the framework, making debugging easier and providing better error information to both users and developers."
+}

@@ -1,0 +1,48 @@
+{
+  "id": "service_method_documentation",
+  "name": "Service Method Documentation Completeness",
+  "version": "1.0.0", 
+  "description": "Standard ensuring comprehensive documentation of all service methods with parameters, return types, and usage examples",
+  "owner_module": "core.framework",
+  "requirements": [
+    "All ServiceMethod instances must have descriptive names matching actual method names",
+    "All ServiceParam instances must include type information and descriptions", 
+    "All ServiceReturn instances must specify return type and description",
+    "ServiceExample instances must provide realistic usage scenarios",
+    "Method documentation must include tags for categorization",
+    "Parameters must specify required/optional status correctly"
+  ],
+  "validation": {
+    "file_targets": {
+      "method_descriptions": ["api.py"],
+      "parameter_types": ["api.py"],
+      "parameter_descriptions": ["api.py"],
+      "return_descriptions": ["api.py"],
+      "realistic_examples": ["api.py"],
+      "method_tags": ["api.py"]
+    },
+    "match_requirements": {
+      "method_descriptions": "all",
+      "parameter_types": "all",
+      "parameter_descriptions": "all",
+      "return_descriptions": "all", 
+      "realistic_examples": "all",
+      "method_tags": "either"
+    },
+    "patterns": {
+      "method_descriptions": "description\\s*=\\s*['\"][^'\"]{10,}['\"]",
+      "parameter_types": "ServiceParam\\s*\\(\\s*['\"][^'\"]+['\"]\\s*,\\s*(str|int|bool|float|Any|Dict|List|Type)",
+      "parameter_descriptions": "ServiceParam\\s*\\([^)]*description\\s*=\\s*['\"][^'\"]{5,}['\"]",
+      "return_descriptions": "ServiceReturn\\s*\\([^,)]+,\\s*['\"][^'\"]{5,}['\"]",
+      "realistic_examples": "ServiceExample\\s*\\([^)]*['\"][^'\"]+['\"]",
+      "method_tags": "tags\\s*=\\s*\\["
+    },
+    "anti_patterns": [
+      "description\\s*=\\s*['\"]\\s*['\"]",
+      "description\\s*=\\s*['\"]TODO",
+      "description\\s*=\\s*['\"]No description"
+    ]
+  },
+  "section": "Core Implementation Standards", 
+  "documentation": "The Service Method Documentation Standard ensures that all service methods provide comprehensive, useful documentation that enables automatic API generation and developer tooling. This standard enforces that documentation is not just present but meaningful, with substantive descriptions, proper type annotations, and realistic usage examples that demonstrate actual service capabilities."
+}

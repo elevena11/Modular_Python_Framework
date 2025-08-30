@@ -1,0 +1,32 @@
+{
+  "id": "sqlitejson_complex_types",
+  "name": "SQLiteJSON for Complex Types",
+  "version": "1.0.0",
+  "description": "Standard for proper handling of complex data types in SQLite",
+  "owner_module": "core.database",
+  "requirements": [
+    "Use SQLiteJSON for dictionary and list fields",
+    "Properly import SQLiteJSON from database models",
+    "Set appropriate defaults for complex fields"
+  ],
+  "validation": {
+    "file_targets": {
+      "sqlitejson_import": ["db_models.py"],
+      "sqlitejson_usage": ["db_models.py"]
+    },
+    "match_requirements": {
+      "sqlitejson_import": "either",
+      "sqlitejson_usage": "either"
+    },
+    "patterns": {
+      "sqlitejson_import": "from\\s+modules\\.core\\.database\\.db_models\\s+import\\s+[^\\n]*?SQLiteJSON",
+      "sqlitejson_usage": "Column\\s*\\([^\\)]*SQLiteJSON[^\\)]*\\)"
+    },
+    "anti_patterns": [
+      "Column\\s*\\([^\\)]*?(Text|String)[^\\)]*default\\s*=\\s*[\\{\\[]",
+      "Column\\s*\\([^\\)]*?(Text|String)[^\\)]*?\\)\\s*#[^\\n]*json"
+    ]
+  },
+  "section": "Database Standards",
+  "documentation": "Ensures modules use SQLiteJSON for storing complex data types (dictionaries, lists, JSON) in the database. Using SQLiteJSON provides proper serialization and deserialization of complex data structures and avoids issues with raw text conversion."
+}

@@ -1,0 +1,37 @@
+{
+  "id": "openapi_documentation",
+  "name": "OpenAPI Documentation",
+  "version": "1.1.0",
+  "description": "Standard for comprehensive API endpoint documentation to aid AI Agent discovery and usage",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Each endpoint must have a docstring with description",
+    "Parameter types must be properly annotated",
+    "Parameters should include descriptions when present",
+    "Response structures should be documented",
+    "Routes should use appropriate HTTP methods"
+  ],
+  "validation": {
+    "file_targets": {
+      "decorated_functions": ["api.py"],
+      "docstring_present": ["api.py"],
+      "parameter_documentation": ["api.py"],
+      "response_documentation": ["api.py"]
+    },
+    "match_requirements": {
+      "decorated_functions": "all",
+      "docstring_present": "all",
+      "parameter_documentation": "all",
+      "response_documentation": "all"
+    },
+    "patterns": {
+      "decorated_functions": "@router\\.(get|post|put|delete|patch)",
+      "docstring_present": "@router\\.(get|post|put|delete|patch)[\\s\\S]*?def[\\s\\S]*?\\:[\\s\\S]*?(?:\"\"\"|''')",
+      "parameter_documentation": "(?:(?:Query|Path|Body|Depends)\\s*\\([^)]*description\\s*=)|(?:Args:)|(?:Parameters:)|(?:param\\s)",
+      "response_documentation": "(?:response_model\\s*=)|(?:Returns:)|(?:returns)|(?:return\\s+{)|(?:\"\"\"[\\s\\S]*?return)"
+    },
+    "anti_patterns": []
+  },
+  "section": "API Standards",
+  "documentation": "Standard ensuring comprehensive API endpoint documentation for AI Agent discovery and usage. The validation is flexible regarding docstring formatting, allowing both Google-style and reStructured Text docstrings, with or without initial newlines after opening quotes. The focus is on content quality rather than specific formatting.\n\nGood documentation should include:\n1. Clear description of what the endpoint does\n2. Explanation of parameters and their purposes\n3. Description of the response structure\n4. Information about possible errors\n\nThis flexibility allows developers to follow their preferred documentation style while ensuring the essential information is present to help the AI Agent understand and use the endpoints correctly."
+}

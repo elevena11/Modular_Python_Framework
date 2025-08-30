@@ -1,0 +1,37 @@
+{
+  "id": "decorator_initialization_phase1",
+  "name": "Decorator-Based Initialization Phase 1",
+  "version": "3.0.0",
+  "description": "Standard validating proper v3.0.0 decorator-based Phase 1 initialization with no database operations",
+  "owner_module": "core.framework", 
+  "requirements": [
+    "Implement Phase 1 in async initialize(self) method within decorated class",
+    "Class must inherit from DataIntegrityModule",
+    "Use @register_service decorator for automatic service registration", 
+    "Don't perform database operations in Phase 1"
+  ],
+  "validation": {
+    "file_targets": {
+      "phase1_initialization": ["api.py"],
+      "decorator_structure": ["api.py"]
+    },
+    "match_requirements": {
+      "phase1_initialization": "all",
+      "decorator_structure": "all"
+    },
+    "patterns": {
+      "phase1_initialization": "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)\\s*->\\s*bool\\s*:",
+      "decorator_structure": "@register_service\\s*\\(.*class\\s+\\w+\\s*\\(\\s*DataIntegrityModule\\s*\\)\\s*:"
+    },
+    "anti_patterns": [
+      "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)[\\s\\S]{0,500}?db_session",
+      "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)[\\s\\S]{0,500}?create_tables", 
+      "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)[\\s\\S]{0,500}?session\\.",
+      "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)[\\s\\S]{0,500}?engine\\.",
+      "async\\s+def\\s+initialize\\s*\\(\\s*self\\s*\\)[\\s\\S]{0,500}?execute\\s*\\(\\s*",
+      "async\\s+def\\s+initialize\\s*\\(\\s*app_context\\s*\\)"
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "v3.0.0 Phase 1 initialization uses decorator-based class methods instead of standalone functions. The decorated class inherits from DataIntegrityModule and implements async initialize(self) -> bool. Decorators handle automatic service registration, eliminating manual registration code.\n\nKey changes from v2.0.0:\n- Uses async initialize(self) method instead of initialize(app_context) function\n- Class-based approach with DataIntegrityModule inheritance\n- @register_service decorator provides automatic registration\n- Returns bool to indicate success/failure\n- Phase 2 registration via register_post_init_hook\n\nThis pattern ensures consistent initialization while leveraging the centralized registration decorator system."
+}

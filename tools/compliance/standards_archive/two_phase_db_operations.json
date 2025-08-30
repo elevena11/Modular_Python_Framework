@@ -1,0 +1,28 @@
+{
+  "id": "two_phase_db_operations",
+  "name": "Two-Phase DB Operations",
+  "version": "1.0.0",
+  "description": "Standard for proper database initialization timing",
+  "owner_module": "core.database",
+  "requirements": [
+    "No database operations in Phase 1 initialization",
+    "Database operations may be performed any time after Phase 1"
+  ],
+  "validation": {
+    "file_targets": {
+      "initialize_function": ["api.py"]
+    },
+    "match_requirements": {
+      "initialize_function": "all"
+    },
+    "patterns": {
+      "initialize_function": "def\\s+initialize\\s*\\([^)]*\\)"
+    },
+    "anti_patterns": [
+      "def\\s+initialize\\s*\\([^)]*\\)[\\s\\S]{0,300}?(db_service\\.execute|session\\.execute|conn\\.execute|async\\s+with\\s+session)",
+      "def\\s+initialize\\s*\\([^)]*\\)[\\s\\S]{0,300}?(await\\s+[^\\n]*?\\.execute)"
+    ]
+  },
+  "section": "Database Standards",
+  "documentation": "Ensures modules follow the framework's two-phase initialization pattern with respect to database operations. Database operations must not occur during Phase 1 initialization. If a module needs database access, it should register a setup hook for Phase 2."
+}

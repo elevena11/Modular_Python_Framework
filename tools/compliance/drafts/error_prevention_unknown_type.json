@@ -1,0 +1,30 @@
+{
+  "id": "error_prevention_unknown_type",
+  "name": "Error Prevention: UNKNOWN_TYPE",
+  "version": "1.0.0",
+  "description": "Standard to prevent recurring UNKNOWN_TYPE errors",
+  "owner_module": "core.compliance",
+  "analysis": {
+    "total_occurrences": 2581,
+    "affected_modules": [
+      "core.settings.validation"
+    ],
+    "common_locations": [],
+    "error_codes": [
+      "core_settings_validation_UNKNOWN_TYPE"
+    ]
+  },
+  "requirements": [
+    "Validate schema type definitions before registration",
+    "Implement type validation in development tools",
+    "Use standard type names: string, bool, int, float"
+  ],
+  "validation": {
+    "patterns": {},
+    "file_targets": {},
+    "match_requirements": {},
+    "anti_patterns": []
+  },
+  "section": "Error Prevention Standards",
+  "documentation": "This standard was generated based on analysis of 2581 error occurrences across 1 modules."
+}

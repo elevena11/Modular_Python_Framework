@@ -1,0 +1,26 @@
+{
+  "id": "error_prevention_embedding_error",
+  "name": "Error Prevention: EMBEDDING_ERROR",
+  "version": "1.0.0",
+  "description": "Standard to prevent recurring EMBEDDING_ERROR errors",
+  "owner_module": "core.compliance",
+  "analysis": {
+    "total_occurrences": 5,
+    "affected_modules": [
+      "standard.vector_operations"
+    ],
+    "common_locations": [],
+    "error_codes": [
+      "standard_vector_operations_EMBEDDING_ERROR"
+    ]
+  },
+  "requirements": [],
+  "validation": {
+    "patterns": {},
+    "file_targets": {},
+    "match_requirements": {},
+    "anti_patterns": []
+  },
+  "section": "Error Prevention Standards",
+  "documentation": "This standard was generated based on analysis of 5 error occurrences across 1 modules."
+}

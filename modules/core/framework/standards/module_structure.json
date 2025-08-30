@@ -1,0 +1,35 @@
+{
+  "id": "v3_module_structure",
+  "name": "v3.0.0 Module Structure Standard",
+  "version": "3.0.0",
+  "description": "Standard for v3.0.0 decorator-based module structure and required files",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Must have api.py file with MODULE_* constants and @register_service decorators",
+    "Should have services.py file for business logic",
+    "Should have settings.py file if using Pydantic settings (Phase 4)",
+    "Must NOT have manifest.json (replaced by MODULE_* constants in api.py)"
+  ],
+  "validation": {
+    "file_targets": {
+      "required_core_files": ["api.py"],
+      "services_file": ["services.py"],
+      "pydantic_settings_file": ["settings.py"]
+    },
+    "match_requirements": {
+      "required_core_files": "all",
+      "services_file": "either",
+      "pydantic_settings_file": "either"
+    },
+    "patterns": {
+      "required_core_files": ".*",
+      "services_file": ".*", 
+      "pydantic_settings_file": ".*"
+    },
+    "anti_patterns": [
+      "manifest\\.json$"
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "Defines the current Service Method Discovery architecture module structure to ensure consistency across the framework. This standard enforces decorator-based metadata with comprehensive service method documentation.\n\nCurrent modules must include:\n- api.py: Contains MODULE_* constants, enhanced @register_service decorator with ServiceMethod documentation, and DataIntegrityModule inheritance\n- MODULE_ID, MODULE_VERSION, MODULE_DESCRIPTION constants (no manifest.json)\n- Enhanced @register_service decorator with methods parameter for service discovery\n- Complete ServiceMethod, ServiceParam, ServiceReturn documentation for all public methods\n\nOptional but recommended files:\n- services.py: Business logic implementation (recommended)\n- settings.py: Pydantic settings schema for Phase 4 configuration system\n\nForbidden files:\n- manifest.json: Replaced by MODULE_* constants in api.py\n- module_settings.py: Replaced by Pydantic settings.py files\n\nThis structure provides comprehensive service introspection and automatic documentation generation while maintaining clean architecture patterns."
+}

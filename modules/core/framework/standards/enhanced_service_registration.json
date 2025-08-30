@@ -1,0 +1,42 @@
+{
+  "id": "enhanced_service_registration",
+  "name": "Enhanced Service Registration with Method Documentation",
+  "version": "1.0.0",
+  "description": "Standard for @register_service decorator with mandatory ServiceMethod documentation for service discovery",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Use @register_service decorator with methods parameter",
+    "Provide ServiceMethod definitions for all public service methods",
+    "Include ServiceParam definitions for all method parameters",
+    "Include ServiceReturn definitions for all method return types",
+    "Provide ServiceExample instances showing usage patterns"
+  ],
+  "validation": {
+    "file_targets": {
+      "enhanced_decorator": ["api.py"],
+      "service_method_docs": ["api.py"],
+      "parameter_docs": ["api.py"],
+      "return_docs": ["api.py"],
+      "usage_examples": ["api.py"]
+    },
+    "match_requirements": {
+      "enhanced_decorator": "all",
+      "service_method_docs": "all",
+      "parameter_docs": "all", 
+      "return_docs": "all",
+      "usage_examples": "all"
+    },
+    "patterns": {
+      "enhanced_decorator": "@register_service\\s*\\(\\s*['\"][^'\"]+['\"]\\s*,\\s*methods\\s*=",
+      "service_method_docs": "ServiceMethod\\s*\\(",
+      "parameter_docs": "ServiceParam\\s*\\(",
+      "return_docs": "ServiceReturn\\s*\\(",
+      "usage_examples": "ServiceExample\\s*\\("
+    },
+    "anti_patterns": [
+      "@register_service\\s*\\(\\s*['\"][^'\"]+['\"]\\s*\\)\\s*$"
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "The Enhanced Service Registration Standard enforces comprehensive service method documentation through the @register_service decorator. This infrastructure pattern ensures all services provide complete introspection data including method signatures, parameter types, return values, and usage examples. This enables automatic documentation generation, development tool support, and framework discoverability following FastAPI-style patterns."
+}

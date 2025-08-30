@@ -1,0 +1,53 @@
+{
+  "id": "settings_api",
+  "name": "Settings API v2",
+  "version": "2.0.1",
+  "description": "Standard for module settings implementation and registration",
+  "owner_module": "core.settings",
+  "requirements": [
+    "Implement module_settings.py for settings definitions",
+    "Use register_module_settings for registration",
+    "Define validation schema for settings",
+    "Define UI metadata for settings display",
+    "Use flat settings structure without nested objects",
+    "Use correct validation type names (string, bool, int, float)",
+    "Rely on manifest.json for version tracking",
+    "Handle renamed settings gracefully"
+  ],
+  "validation": {
+    "file_targets": {
+      "settings_file": ["module_settings.py"],
+      "settings_definition": ["module_settings.py"],
+      "validation_schema": ["module_settings.py"],
+      "ui_metadata": ["module_settings.py"],
+      "registration_call": ["api.py", "module_settings.py"],
+      "no_explicit_version": ["module_settings.py", "api.py"],
+      "flat_structure": ["module_settings.py"],
+      "correct_type_names": ["module_settings.py"]
+    },
+    "match_requirements": {
+      "settings_file": "all",
+      "settings_definition": "all",
+      "validation_schema": "all",
+      "ui_metadata": "all",
+      "registration_call": "either",
+      "no_explicit_version": "all",
+      "flat_structure": "none",
+      "correct_type_names": "none"
+    },
+    "patterns": {
+      "settings_definition": "DEFAULT_SETTINGS\\s*=\\s*\\{",
+      "validation_schema": "VALIDATION_SCHEMA\\s*=\\s*\\{",
+      "ui_metadata": "UI_METADATA\\s*=\\s*\\{",
+      "registration_call": "app_context\\.register_module_settings\\([\\s\\S]*?\\)",
+      "flat_structure": "DEFAULT_SETTINGS_NESTED_CHECK",
+      "correct_type_names": "VALIDATION_TYPE_CHECK"
+    },
+    "anti_patterns": [
+      "version\\s*=\\s*['\"][0-9.]+['\"]\\s*\\)",
+      "MODULE_SETTINGS\\s*="
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "Provides a standardized way to register, retrieve, and validate module settings. Settings should be defined in a dedicated module_settings.py file, registered during initialization, and accessed through the app_context.get_module_settings() method. The validation schema ensures settings conform to expected types and ranges, while UI metadata is essential for the centralized settings UI to properly display and explain each setting. \n\nSettings must use flat structure (no nested dictionaries) to ensure proper UI compatibility. Use dot notation like 'database.host' instead of nested objects. Complex configuration should be handled through separate config objects outside DEFAULT_SETTINGS.\n\nVersion tracking is now handled through the manifest.json file. This standard integrates with the two-phase initialization pattern, as settings are typically registered during Phase 1 but may be accessed in either phase."
+}

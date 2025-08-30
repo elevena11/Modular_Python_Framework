@@ -1,0 +1,35 @@
+{
+  "id": "module_dependency",
+  "name": "Module Dependency Management",
+  "version": "1.0.2",
+  "description": "Standard for handling dependencies between modules",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Check if required services exist before using them",
+    "Use appropriate patterns for service existence checking",
+    "Avoid direct imports from other modules"
+  ],
+  "validation": {
+    "file_targets": {
+      "dependency_check": ["api.py"],
+      "no_direct_imports": ["*.py"]
+    },
+    "match_requirements": {
+      "dependency_check": "all",
+      "no_direct_imports": "all"
+    },
+    "patterns": {
+      "dependency_check": "(app_context\\.get_service\\s*\\([^)]*?(?:f['\"].*?['\"]|['\"][a-zA-Z0-9_.]+['\"])\\s*\\)[\\s\\S]*?if\\s+not|if\\s+not\\s+app_context\\.get_service\\s*\\([^)]*?(?:f['\"].*?['\"]|['\"][a-zA-Z0-9_.]+['\"])\\s*\\)|[a-zA-Z_][a-zA-Z0-9_]*\\s*=\\s*app_context\\.get_service\\s*\\([^)]*?(?:f['\"].*?['\"]|['\"][a-zA-Z0-9_.]+['\"])\\s*\\)[\\s\\S]*?if\\s+not\\s+[a-zA-Z_][a-zA-Z0-9_]*)"
+    },
+    "anti_patterns": [
+      "from\\s+modules\\.[a-z]+\\.[a-z_]+\\s+import",
+      "import\\s+modules\\.[a-z]+\\.[a-z_]+",
+      "try\\s*:.*app_context\\.get_service.*except\\s+"
+    ],
+    "exceptions": [
+      "from\\s+modules\\.core\\.error_handler\\."
+    ]
+  },
+  "section": "Core Implementation Standards",
+  "documentation": "Ensures modules handle dependencies properly and maintain loose coupling. Modules should check for service existence using 'if not service:' patterns rather than try/except blocks, as app_context.get_service() returns None rather than raising exceptions when services don't exist. This standard promotes resilience, clear error handling, and maintainable code."
+}

@@ -1,0 +1,71 @@
+{
+  "id": "api_schema_validation",
+  "name": "API Schema Validation",
+  "version": "1.0.1",
+  "description": "Standard for consistent API request and response validation using Pydantic V2 models with clear separation from database models",
+  "owner_module": "core.framework",
+  "requirements": [
+    "Use Pydantic V2 compatible syntax (populate_by_name, json_schema_extra)",
+    "API schemas must be defined in api_schemas.py, separate from database models in db_models.py",
+    "API endpoints must use Pydantic models for request/response validation",
+    "Schemas must use appropriate field types and constraints",
+    "Schemas must include descriptive field docstrings",
+    "Schemas must follow consistent naming conventions",
+    "Response models must be explicitly defined in API endpoints",
+    "Avoid field names that shadow BaseModel attributes"
+  ],
+  "validation": {
+    "file_targets": {
+      "api_schemas_file_exists": ["api_schemas.py"],
+      "pydantic_imports": ["api_schemas.py", "api.py"],
+      "schema_classes": ["api_schemas.py"],
+      "response_model_usage": ["api.py"],
+      "field_type_annotations": ["api_schemas.py"],
+      "pydantic_v2_config": ["api_schemas.py"]
+    },
+    "match_requirements": {
+      "api_schemas_file_exists": "all",
+      "pydantic_imports": "either",
+      "schema_classes": "all",
+      "response_model_usage": "all",
+      "field_type_annotations": "all",
+      "pydantic_v2_config": "either"
+    },
+    "patterns": {
+      "api_schemas_file_exists": ".*",
+      "pydantic_imports": "from\\s+pydantic\\s+import\\s+(?:BaseModel|Field|validator|root_validator)",
+      "schema_classes": "class\\s+[A-Z][a-zA-Z0-9]*(?:Request|Response|Schema|Model|Config)\\s*\\(\\s*BaseModel\\s*\\)",
+      "response_model_usage": "response_model\\s*=\\s*[A-Z][a-zA-Z0-9]*(?:Request|Response|Schema|Model|Config)",
+      "field_type_annotations": "\\w+\\s*:\\s*(?:\\w+|List\\[\\w+\\]|Dict\\[\\w+,\\s*\\w+\\]|Optional\\[\\w+\\]|Union\\[)"
+      
+    },
+    "anti_patterns": [
+      {
+        "name": "pydantic_v1_config_syntax",
+        "pattern": "class\\s+Config.*?allow_population_by_field_name\\s*=",
+        "message": "Pydantic V1 syntax 'allow_population_by_field_name' detected, use 'populate_by_name' instead for V2 compatibility",
+        "file_targets": ["api_schemas.py"]
+      },
+      {
+        "name": "pydantic_v1_schema_extra",
+        "pattern": "class\\s+Config.*?schema_extra\\s*=",
+        "message": "Pydantic V1 syntax 'schema_extra' detected, use 'json_schema_extra' instead for V2 compatibility",
+        "file_targets": ["api_schemas.py"]
+      },
+      {
+        "name": "schema_field_conflict",
+        "pattern": "schema\\s*:\\s*(?:Optional\\[)?Dict\\[",
+        "message": "Field name 'schema' conflicts with Pydantic BaseModel attribute, use an alternative name like 'schema_definition'",
+        "file_targets": ["api_schemas.py"]
+      },
+      {
+        "name": "extra_field_v1",
+        "pattern": "extra\\s*=\\s*['\"](?:allow|ignore|forbid)['\"]",
+        "message": "Pydantic V1 'extra' field syntax, use 'model_config' dictionary with 'extra' key instead",
+        "file_targets": ["api_schemas.py"]
+      }
+    ]
+  },
+  "section": "API Standards",
+  "documentation": "Standard ensuring consistent use of Pydantic V2 models for API request and response validation, with a strict separation from database models. API schemas are defined in api_schemas.py while database models remain in db_models.py, following FastAPI best practices.\n\nPydantic V2 introduces several breaking changes compared to V1. Key changes include:\n\n1. Configuration attribute renaming:\n   - 'allow_population_by_field_name' → 'populate_by_name'\n   - 'schema_extra' → 'json_schema_extra'\n\n2. Field name conflicts:\n   - Avoid field names like 'schema' that shadow BaseModel attributes\n   - Use alternative names like 'schema_definition' instead\n\n3. Configuration style:\n   - Can use 'class Config' or top-level 'model_config' dictionary\n\nEnsuring Pydantic V2 compatibility helps maintain forward compatibility with FastAPI and other framework updates."
+}

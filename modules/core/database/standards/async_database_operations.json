@@ -1,0 +1,34 @@
+{
+  "id": "async_database_operations",
+  "name": "Asynchronous Database Operations (Phase 4)",
+  "version": "2.0.0",
+  "description": "Standard for Phase 4 asynchronous database operations using integrity_session pattern",
+  "owner_module": "core.database",
+  "requirements": [
+    "Use Phase 4 integrity_session pattern for database operations",
+    "Use await session.execute() within integrity_session context",
+    "Use await session.commit() for transactions",
+    "Avoid deprecated execute_with_retry patterns",
+    "Avoid sync_engine in async contexts"
+  ],
+  "validation": {
+    "file_targets": {
+      "integrity_session_pattern": ["services.py", "api.py", "database.py"],
+      "async_session_operations": ["services.py", "api.py", "database.py"]
+    },
+    "match_requirements": {
+      "integrity_session_pattern": "either",
+      "async_session_operations": "either"
+    },
+    "patterns": {
+      "integrity_session_pattern": "async\\s+with\\s+.*?\\.integrity_session\\s*\\(",
+      "async_session_operations": "await\\s+session\\.(execute|commit|rollback|refresh|add|delete|merge)\\s*\\("
+    },
+    "anti_patterns": [
+      "sync_engine\\.execute\\s*\\(",
+      "db_sync_session\\(\\)\\..*?execute\\s*\\("
+    ]
+  },
+  "section": "Database Standards",
+  "documentation": "Ensures proper use of Phase 4 asynchronous database operations using the integrity_session pattern. This standard requires modules to demonstrate the current Phase 4 patterns while still allowing backward compatibility methods. The integrity_session pattern provides better session lifecycle management, automatic cleanup, and improved error handling for multi-database environments. Only synchronous database operations in async contexts are forbidden."
+}
