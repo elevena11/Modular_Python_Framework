@@ -64,10 +64,10 @@ Each project maintains a `.framework_version` file:
 
 ## Backups
 
-Before each update, the system creates a backup in `work/framework_backups/`:
+Before each update, the system creates a backup in `.framework_backups/`:
 
 ```
-work/framework_backups/
+.framework_backups/
 └── framework_v1.0.0_20250830_223000/
     ├── core/
     ├── modules/core/
@@ -90,7 +90,7 @@ The update system warns about major version changes:
 To rollback after an update:
 
 1. Stop your application
-2. Copy files from `work/framework_backups/framework_vX.X.X_timestamp/`
+2. Copy files from `.framework_backups/framework_vX.X.X_timestamp/`
 3. Restore `.framework_version` file
 4. Restart application
 

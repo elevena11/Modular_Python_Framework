@@ -30,7 +30,7 @@ class FrameworkUpdater:
     def __init__(self, project_root: str = "."):
         self.project_root = Path(project_root).resolve()
         self.framework_version_file = self.project_root / ".framework_version"
-        self.backup_dir = self.project_root / "work" / "framework_backups"
+        self.backup_dir = self.project_root / ".framework_backups"
         
         # Framework repository settings
         self.repo_owner = "elevena11"

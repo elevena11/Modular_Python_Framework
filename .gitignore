@@ -191,3 +191,5 @@ Thumbs.db
 *.parquet
 historical_data/
 bulk_data/
+# Framework Backups (created by update system)
+.framework_backups/
