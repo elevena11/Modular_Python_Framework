@@ -37,9 +37,7 @@ from .services import ModelManagerService
 # Import new Pydantic settings model for settings integration
 from .settings import ModelManagerSettings
 
-# ============================================================================
 # NEW DECORATOR-BASED MODULE CLASS (centralized registration)
-# ============================================================================
 
 # v3.0.0 Complete Decorator-Based Registration (eliminates all manual patterns)
 @register_service("core.model_manager.service", methods=[
@@ -291,9 +289,7 @@ class ModelManagerModule(DataIntegrityModule):
         if self.service_instance and hasattr(self.service_instance, 'force_close'):
             self.service_instance.force_close()
 
-# ============================================================================
 # FASTAPI ROUTES
-# ============================================================================
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
@@ -503,18 +499,14 @@ async def get_worker_status(service = Depends(get_model_service())):
         )
 
 
-# ============================================================================
 # MODULE CONSTANTS
-# ============================================================================
 
 # Module identity
 MODULE_ID = "core.model_manager"
 MODULE_VERSION = "1.0.0"
 MODULE_DESCRIPTION = "Core model management and coordination"
 
-# ============================================================================
 # ROUTE REGISTRATION
-# ============================================================================
 
 def register_routes(app_router):
     """Register module routes with the main FastAPI app."""

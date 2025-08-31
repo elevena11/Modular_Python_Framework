@@ -59,9 +59,7 @@ class Result:
 from .services import ErrorRegistry
 from .settings import ErrorHandlerSettings
 
-# ============================================================================
 # NEW DECORATOR-BASED MODULE CLASS (centralized registration)
-# ============================================================================
 
 # v3.0.0 Complete Decorator-Based Registration (eliminates all manual patterns)
 @register_service("core.error_handler.service", methods=[
@@ -339,17 +337,13 @@ class ErrorHandlerModule(DataIntegrityModule):
         if self.error_registry and hasattr(self.error_registry, 'force_close'):
             self.error_registry.force_close()
 
-# ============================================================================
 # MODULE CONSTANTS
-# ============================================================================
 
 # Module identity
 MODULE_ID = "core.error_handler"
 logger = logging.getLogger(MODULE_ID)
 
-# ============================================================================
 # HELPER FUNCTIONS FOR MODULES
-# ============================================================================
 
 async def search_errors(app_context, query: str, limit: int = 10):
     """

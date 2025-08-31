@@ -17,9 +17,7 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Bool
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.types import TypeDecorator
 
-# ============================================================================
 # INFRASTRUCTURE UTILITIES
-# ============================================================================
 
 # Create a custom SQLite-friendly JSON type
 class SQLiteJSON(TypeDecorator):
@@ -40,9 +38,7 @@ class SQLiteJSON(TypeDecorator):
                 pass
         return value
 
-# ============================================================================
 # MULTI-DATABASE SUPPORT - Database-Specific Bases
-# ============================================================================
 
 # Global registry to avoid import duplication issues
 import sys

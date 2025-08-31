@@ -60,9 +60,7 @@ from .api_schemas import (
     TableDataResponse, TableSchemaResponse, ErrorResponse
 )
 
-# ============================================================================
 # NEW DECORATOR-BASED MODULE CLASS (centralized registration)
-# ============================================================================
 
 # v3.0.0 Complete Decorator-Based Registration (eliminates all manual patterns)
 @register_service("core.database.service", methods=[
@@ -419,9 +417,7 @@ class DatabaseModule(DataIntegrityModule):
         if self.crud_service:
             self.crud_service.force_close()
 
-# ============================================================================
 # API ENDPOINTS (Registered automatically via decorator)
-# ============================================================================
 
 # Module ID for consistent error codes
 MODULE_ID = "core.database"
@@ -497,9 +493,7 @@ async def db_status(db_service=get_db_service()):
 # Note: All other endpoints would be migrated similarly, but for brevity,
 # I'm showing the pattern. The full migration would include all routes.
 
-# ============================================================================
 # POST-INITIALIZATION HOOK FUNCTIONS
-# ============================================================================
 
 async def register_database_settings(app_context):
     """Register database settings for UI purposes."""

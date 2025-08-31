@@ -33,9 +33,7 @@ from .services import FrameworkService
 from .settings import FrameworkSettings
 from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, FrameworkInfoResponse
 
-# ============================================================================
 # NEW DECORATOR-BASED MODULE CLASS (centralized registration)
-# ============================================================================
 
 # v3.0.0 Complete Decorator-Based Registration (eliminates all manual patterns)
 @register_service("core.framework.service", methods=[
@@ -218,9 +216,7 @@ class FrameworkModule(DataIntegrityModule):
         if self.service_instance and hasattr(self.service_instance, 'force_close'):
             self.service_instance.force_close()
 
-# ============================================================================
 # API ENDPOINTS (Registered automatically via decorator)
-# ============================================================================
 
 # Create router for framework endpoints
 router = APIRouter(tags=["framework"])
@@ -271,9 +267,7 @@ async def get_session_info():
             )
         )
 
-# ============================================================================
 # MODULE CONSTANTS
-# ============================================================================
 
 # Module identity for consistent logging and error handling
 MODULE_ID = "core.framework"
