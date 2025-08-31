@@ -13,26 +13,45 @@ A generic modular Python framework designed for rapid development of scalable ap
 - **FastAPI Integration** - Automatic route discovery and API documentation
 - **Compliance System** - Code quality validation and guidance tools
 
-## Quick Start
+## Installation
 
-1. **Initialize Database**
+**Important:** Use the release ZIP files, not git clone. The framework includes an update system that manages versioning and file tracking.
+
+1. **Download Latest Release**
+   - Go to [Releases](../../releases)
+   - Download the latest `Modular_Python_Framework-vX.X.X.zip`
+   - Extract to your desired location
+
+2. **Install Dependencies**
+   ```bash
+   python install_dependencies.py
+   ```
+
+3. **Initialize Database**
    ```bash
    python setup_db.py
    ```
 
-2. **Start Framework**
+4. **Start Framework**
    ```bash
    python app.py
    ```
 
-3. **Create New Module**
+## Quick Start
+
+1. **Create New Module**
    ```bash
    python tools/scaffold_module.py --name my_module --type standard
    ```
 
-4. **View API Documentation**
+2. **View API Documentation**
    ```
    http://localhost:8000/docs
+   ```
+
+3. **Update Framework**
+   ```bash
+   python update_core.py
    ```
 
 ## Project Structure
@@ -89,9 +108,3 @@ Modular_Python_Framework/
 ## Documentation
 
 See `CLAUDE.md` for comprehensive framework documentation and development guidelines.
-
-## Version
-
-Framework Version: 1.0.0  
-Architecture Version: 4.0  
-Release Date: 2025-08-30

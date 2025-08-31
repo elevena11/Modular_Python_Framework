@@ -2,31 +2,13 @@
 
 **Status: PLANNED - Not Implemented Yet**
 
-This module will provide production-ready authentication and authorization for the Modular Python Framework, enabling secure deployment beyond localhost development.
-
 ## Purpose
-
-The `core.auth` module will transform the framework from a development-only tool into a production-ready platform by providing:
 
 - **User Management** - Registration, authentication, and user profiles
 - **Role-Based Access Control** - Admin, user, and custom roles with granular permissions  
 - **API Security** - JWT tokens, API keys, and request authentication
 - **UI Security** - Login screens, session management, and permission-based UI components
 - **Production Deployment** - Secure server/client architecture for networked access
-
-## Critical Need
-
-**Without this module, the framework is limited to:**
-- ❌ Localhost development only
-- ❌ Personal hobby projects  
-- ❌ Single-user applications
-
-**With this module, the framework enables:**
-- ✅ Production business applications
-- ✅ Multi-user systems
-- ✅ Remote deployment and access
-- ✅ Client-server architectures
-- ✅ Enterprise-ready security
 
 ## Planned Architecture
 
@@ -202,26 +184,6 @@ REQUIRE_EMAIL_VERIFICATION=true
 - **Testing**: Auth enabled, test users and roles configured
 - **Production**: Full authentication required, admin-managed users
 
-## Benefits for Framework Adoption
-
-### For Developers
-- **Rapid prototyping** - Start without auth, add it when ready for production
-- **Production-ready security** - Enterprise-grade authentication built-in
-- **Flexible deployment** - Single codebase works for dev and production
-- **Standard patterns** - Uses familiar framework decorators and Result pattern
-
-### For Applications  
-- **Multi-user support** - Built-in user management and role separation
-- **Secure deployment** - Ready for network access with proper authentication
-- **Compliance readiness** - Audit trails and access controls for regulatory requirements
-- **Scalable architecture** - Server/client separation enables distributed deployments
-
-### For Enterprise Use
-- **Security by design** - Authentication integrated into framework core
-- **Role-based access** - Granular permissions for different user types
-- **Audit capabilities** - Track user actions and system access
-- **Integration ready** - OAuth and external auth provider support
-
 ## Next Steps
 
 1. **Design database schema** for users, roles, and permissions
@@ -231,5 +193,3 @@ REQUIRE_EMAIL_VERIFICATION=true
 5. **Develop Streamlit UI components** for login and user management
 6. **Create documentation and examples** for module integration
 7. **Test with existing modules** to ensure seamless integration
-
-This module will be the key enabler for transforming the Modular Python Framework from a development tool into a production-ready application platform.

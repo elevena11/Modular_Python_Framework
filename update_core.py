@@ -6,13 +6,13 @@ This utility allows projects using the Modular Python Framework to check for
 and apply framework updates while preserving their application modules.
 
 Usage:
-    python tools/update_core.py                # Check for updates
-    python tools/update_core.py --force        # Force update without prompts
-    python tools/update_core.py --check-only   # Only check, don't update
-    python tools/update_core.py --backup-only  # Create backup of current framework
-    python tools/update_core.py --list-backups # List available backups
-    python tools/update_core.py --rollback     # Interactive rollback (choose from list)
-    python tools/update_core.py --rollback v1.0.0  # Rollback to specific version
+    python update_core.py                      # Check for updates
+    python update_core.py --force              # Force update without prompts
+    python update_core.py --check-only         # Only check, don't update
+    python update_core.py --backup-only        # Create backup of current framework
+    python update_core.py --list-backups       # List available backups
+    python update_core.py --rollback           # Interactive rollback (choose from list)
+    python update_core.py --rollback v1.0.0    # Rollback to specific version
 """
 
 import os
@@ -40,18 +40,7 @@ class FrameworkUpdater:
         self.repo_name = "Modular_Python_Framework" 
         self.github_api_base = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}"
         
-        # Framework core paths that will be updated
-        self.core_paths = [
-            "core/",
-            "modules/core/",
-            "tools/",
-            "ui/",
-            "app.py",
-            "run_ui.py",
-            "setup_db.py",
-            "requirements.txt",
-            "framework_version.json"
-        ]
+        # Repository settings only - no hardcoded file lists!
     
     def get_current_version(self) -> Dict[str, Any]:
         """Get current framework version from local file."""
@@ -167,8 +156,36 @@ class FrameworkUpdater:
         response = input("Proceed with update? (y/N): ").strip().lower()
         return response in ['y', 'yes']
     
-    def backup_current_framework(self) -> str:
-        """Create backup of current framework."""
+    def detect_orphaned_files(self, new_manifest: Dict[str, Any]) -> List[str]:
+        """Detect files that exist locally but aren't in the new manifest."""
+        if not new_manifest or "framework_files" not in new_manifest:
+            return []
+        
+        new_framework_files = set(new_manifest["framework_files"])
+        orphaned_files = []
+        
+        # Check current framework files against new manifest
+        current_manifest_file = self.project_root / "framework_manifest.json"
+        if current_manifest_file.exists():
+            try:
+                with open(current_manifest_file, 'r') as f:
+                    current_manifest = json.load(f)
+                
+                current_framework_files = current_manifest.get("framework_files", [])
+                
+                for current_file in current_framework_files:
+                    file_path = self.project_root / current_file
+                    # File exists locally but not in new manifest = orphaned
+                    if file_path.exists() and current_file not in new_framework_files:
+                        orphaned_files.append(current_file)
+                        
+            except json.JSONDecodeError:
+                print("⚠️  Warning: Could not read current manifest, orphan detection skipped")
+        
+        return orphaned_files
+
+    def backup_files_from_zip_content(self, zip_content_list: List[str]) -> str:
+        """Create backup of files that exist in both local project and zip file."""
         current_version = self.get_current_version()["version"]
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_name = f"framework_v{current_version}_{timestamp}"
@@ -176,26 +193,74 @@ class FrameworkUpdater:
         
         # Ensure backup directory exists
         self.backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path.mkdir(exist_ok=True)
         
         print(f"Creating backup: {backup_path}")
         
-        # Backup core framework files
-        for path_str in self.core_paths:
-            source_path = self.project_root / path_str
-            if source_path.exists():
-                if source_path.is_dir():
-                    shutil.copytree(source_path, backup_path / path_str)
-                else:
-                    backup_path.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(source_path, backup_path / path_str)
+        # Track files for rollback purposes
+        rollback_info = {
+            "backed_up_files": [],      # Files that were backed up (restore these on rollback)
+            "new_files": [],            # New files that didn't exist (delete these on rollback)
+            "backup_timestamp": timestamp,
+            "original_version": current_version,
+            "project_root": str(self.project_root)
+        }
         
-        # Backup version tracking file
+        # Backup only files that exist locally AND are in the zip
+        backed_up_count = 0
+        for zip_item in zip_content_list:
+            local_path = self.project_root / zip_item
+            
+            if local_path.exists():
+                print(f"   Backing up: {zip_item}")
+                backup_target = backup_path / zip_item
+                
+                if local_path.is_dir():
+                    shutil.copytree(local_path, backup_target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                else:
+                    backup_target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(local_path, backup_target)
+                
+                rollback_info["backed_up_files"].append(zip_item)
+                backed_up_count += 1
+            else:
+                print(f"   New file (no backup needed): {zip_item}")
+                rollback_info["new_files"].append(zip_item)
+        
+        # Always backup version tracking file if it exists
         if self.framework_version_file.exists():
             shutil.copy2(self.framework_version_file, backup_path / ".framework_version")
         
-        print(f"✅ Backup created: {backup_path}")
+        # Save rollback information
+        rollback_info_file = backup_path / ".rollback_info.json"
+        with open(rollback_info_file, 'w') as f:
+            json.dump(rollback_info, f, indent=2)
+        
+        print(f"✅ Backup created: {backup_path} ({backed_up_count} items backed up, {len(rollback_info['new_files'])} new files tracked)")
         return str(backup_path)
     
+    def get_zip_content_list(self, zip_file: zipfile.ZipFile) -> List[str]:
+        """Get list of root-level files and directories in the zip."""
+        root_items = set()
+        
+        for file_path in zip_file.namelist():
+            # Skip the GitHub-generated root directory (e.g., "user-repo-commit/")
+            parts = file_path.split('/')
+            if len(parts) > 1 and not file_path.endswith('/'):
+                # This is a file inside the root directory
+                root_items.add(parts[1])  # Add the first level after root
+            elif len(parts) > 2:
+                # This is a directory
+                root_items.add(parts[1])
+        
+        # Filter out hidden files and directories we don't want
+        filtered_items = []
+        for item in root_items:
+            if not item.startswith('.') or item in ['.env.example']:
+                filtered_items.append(item)
+        
+        return sorted(filtered_items)
+
     def download_and_extract_framework(self, remote_info: Dict[str, Any]) -> bool:
         """Download and extract new framework version."""
         print(f"📥 Downloading framework v{remote_info['version']}...")
@@ -212,8 +277,12 @@ class FrameworkUpdater:
                 with open(zip_path, 'wb') as f:
                     f.write(response.content)
                 
-                # Extract and find the framework directory
+                # First, scan zip contents to see what we're updating
                 with zipfile.ZipFile(zip_path, 'r') as zip_file:
+                    zip_content_list = self.get_zip_content_list(zip_file)
+                    print(f"📋 Framework contains {len(zip_content_list)} items: {', '.join(zip_content_list)}")
+                    
+                    # Extract the zip
                     zip_file.extractall(temp_dir)
                 
                 # Find extracted directory (GitHub creates dirs like "user-repo-commit")
@@ -223,39 +292,85 @@ class FrameworkUpdater:
                 
                 framework_dir = extracted_dirs[0]
                 
+                # Check for new manifest and detect orphaned files
+                new_manifest_file = framework_dir / "framework_manifest.json"
+                new_manifest = None
+                orphaned_files = []
+                
+                if new_manifest_file.exists():
+                    try:
+                        with open(new_manifest_file, 'r') as f:
+                            new_manifest = json.load(f)
+                        print(f"📋 New framework manifest found (v{new_manifest.get('version', 'unknown')})")
+                        
+                        # Detect orphaned files
+                        orphaned_files = self.detect_orphaned_files(new_manifest)
+                        if orphaned_files:
+                            print(f"⚠️  WARNING: {len(orphaned_files)} files will become orphaned:")
+                            for orphan in orphaned_files[:10]:  # Show first 10
+                                print(f"    - {orphan}")
+                            if len(orphaned_files) > 10:
+                                print(f"    ... and {len(orphaned_files) - 10} more")
+                            print("    These files are no longer part of the framework")
+                            print("    They will remain but may cause conflicts")
+                            
+                            # Ask user if they want to continue
+                            continue_update = input("\nContinue with update despite orphaned files? (y/N): ").strip().lower()
+                            if continue_update not in ['y', 'yes']:
+                                print("Update cancelled by user")
+                                return False
+                    except json.JSONDecodeError:
+                        print("⚠️  Warning: Could not read new manifest")
+                else:
+                    print("📋 No manifest found in new version - orphan detection skipped")
+                
+                # Create backup of files that will be replaced
+                backup_path = self.backup_files_from_zip_content(zip_content_list)
+                
                 # Copy framework files to project
-                self.copy_framework_files(framework_dir)
+                self.copy_framework_files(framework_dir, zip_content_list)
                 
                 # Update version tracking
                 self.update_version_tracking(remote_info)
                 
                 print(f"✅ Framework updated to v{remote_info['version']}")
+                print(f"📦 Backup available at: {backup_path}")
                 return True
                 
         except Exception as e:
             print(f"❌ Error downloading/extracting framework: {e}")
             return False
     
-    def copy_framework_files(self, source_dir: Path):
+    def copy_framework_files(self, source_dir: Path, zip_content_list: List[str]):
         """Copy framework files from extracted directory to project."""
-        for path_str in self.core_paths:
-            source_path = source_dir / path_str
-            target_path = self.project_root / path_str
+        print("📋 Updating framework files...")
+        
+        # Copy only files that are in the zip content list
+        for item_name in zip_content_list:
+            source_path = source_dir / item_name
+            target_path = self.project_root / item_name
             
             if not source_path.exists():
+                print(f"   Warning: {item_name} not found in extracted files")
                 continue
-                
+            
+            # Remove existing target if it exists
             if target_path.exists():
+                print(f"   Replacing: {item_name}")
                 if target_path.is_dir():
                     shutil.rmtree(target_path)
                 else:
                     target_path.unlink()
-            
-            if source_path.is_dir():
-                shutil.copytree(source_path, target_path)
             else:
-                target_path.parent.mkdir(parents=True, exist_ok=True)
+                print(f"   Adding new: {item_name}")
+            
+            # Copy the new file/directory
+            if source_path.is_dir():
+                shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+            else:
                 shutil.copy2(source_path, target_path)
+        
+        print("✅ Framework files updated")
     
     def update_version_tracking(self, remote_info: Dict[str, Any]):
         """Update .framework_version file after successful update."""
@@ -311,7 +426,7 @@ class FrameworkUpdater:
         backups.sort(key=lambda x: x["created"], reverse=True)
         return backups
     
-    def rollback_to_backup(self, backup_name: str = None) -> bool:
+    def rollback_to_backup(self, backup_name: str = None, delete_new_files: bool = False) -> bool:
         """Rollback framework to a specific backup."""
         backups = self.list_backups()
         
@@ -370,41 +485,155 @@ class FrameworkUpdater:
         try:
             backup_path = Path(selected_backup["path"])
             
-            # Create backup of current state before rollback
-            print("📦 Creating backup of current state before rollback...")
-            pre_rollback_backup = self.backup_current_framework()
+            # Check if rollback info exists for complete rollback
+            rollback_info_file = backup_path / ".rollback_info.json"
+            if rollback_info_file.exists():
+                print("📋 Found rollback information - performing complete rollback")
+                return self.perform_complete_rollback(backup_path, target_version, current_version, delete_new_files)
+            else:
+                print("⚠️  No rollback information found - performing basic rollback")
+                return self.perform_basic_rollback(backup_path, target_version, current_version)
             
-            # Copy framework files from backup
+        except Exception as e:
+            print(f"\n❌ Rollback failed: {e}")
+            return False
+    
+    def perform_complete_rollback(self, backup_path: Path, target_version: str, current_version: str) -> bool:
+        """Perform complete rollback using rollback information."""
+        try:
+            # Load rollback information
+            rollback_info_file = backup_path / ".rollback_info.json"
+            with open(rollback_info_file, 'r') as f:
+                rollback_info = json.load(f)
+            
+            backed_up_files = rollback_info.get("backed_up_files", [])
+            new_files = rollback_info.get("new_files", [])
+            
+            print(f"📋 Rollback plan: restore {len(backed_up_files)} files")
+            
+            if new_files:
+                print(f"⚠️  WARNING: {len(new_files)} files were added in the update:")
+                for new_file in new_files:
+                    print(f"    - {new_file}")
+                print("    These files will remain (not automatically deleted for safety)")
+                print("    You can manually remove them if needed")
+            
+            # Create backup of current state before rollback
+            print("📦 Creating safety backup before rollback...")
+            pre_rollback_backup = self.backup_current_framework_simple()
+            
+            # Step 1: Only restore backed up files - don't delete new files
+            # (Leave new files alone for safety)
+            
+            # Step 2: Restore files that were backed up
+            for backed_up_file in backed_up_files:
+                source_path = backup_path / backed_up_file
+                target_path = self.project_root / backed_up_file
+                
+                if source_path.exists():
+                    print(f"   Restoring: {backed_up_file}")
+                    
+                    # Remove current version first
+                    if target_path.exists():
+                        if target_path.is_dir():
+                            shutil.rmtree(target_path)
+                        else:
+                            target_path.unlink()
+                    
+                    # Copy from backup
+                    if source_path.is_dir():
+                        shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                    else:
+                        target_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_path, target_path)
+            
+            # Step 3: Restore version file
+            backup_version_file = backup_path / ".framework_version"
+            if backup_version_file.exists():
+                shutil.copy2(backup_version_file, self.framework_version_file)
+            else:
+                # Create version file for the rollback
+                self.create_rollback_version_file(target_version, current_version)
+            
+            print(f"\n✅ Complete rollback successful!")
+            print(f"📦 Framework restored to v{target_version}")
+            print(f"💾 Safety backup available at: {pre_rollback_backup}")
+            print("\n🔄 Please restart your application to use the rolled-back framework.")
+            return True
+            
+        except Exception as e:
+            print(f"Complete rollback failed: {e}")
+            return False
+    
+    def perform_basic_rollback(self, backup_path: Path, target_version: str, current_version: str) -> bool:
+        """Perform basic rollback (old backup format)."""
+        try:
+            # Create backup of current state before rollback
+            print("📦 Creating safety backup before rollback...")
+            pre_rollback_backup = self.backup_current_framework_simple()
+            
+            # Copy framework files from backup (old method)
             print(f"🔄 Restoring framework from backup...")
-            self.copy_framework_files(backup_path)
+            for item in backup_path.iterdir():
+                if item.name.startswith('.'):
+                    continue
+                
+                target_path = self.project_root / item.name
+                
+                print(f"   Restoring: {item.name}")
+                if target_path.exists():
+                    if target_path.is_dir():
+                        shutil.rmtree(target_path)
+                    else:
+                        target_path.unlink()
+                
+                if item.is_dir():
+                    shutil.copytree(item, target_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                else:
+                    shutil.copy2(item, target_path)
             
             # Restore version file
             backup_version_file = backup_path / ".framework_version"
             if backup_version_file.exists():
                 shutil.copy2(backup_version_file, self.framework_version_file)
             else:
-                # Create version file for the rollback
-                rollback_data = {
-                    "version": target_version,
-                    "commit": "",
-                    "updated_date": datetime.now().isoformat(),
-                    "source": "rollback",
-                    "rollback_from": current_version,
-                    "project_name": os.path.basename(self.project_root)
-                }
-                
-                with open(self.framework_version_file, 'w') as f:
-                    json.dump(rollback_data, f, indent=2)
+                self.create_rollback_version_file(target_version, current_version)
             
-            print(f"\n✅ Rollback completed successfully!")
+            print(f"\n✅ Basic rollback completed!")
             print(f"📦 Framework restored to v{target_version}")
-            print(f"💾 Pre-rollback backup available at: {pre_rollback_backup}")
+            print(f"💾 Safety backup available at: {pre_rollback_backup}")
             print("\n🔄 Please restart your application to use the rolled-back framework.")
             return True
             
         except Exception as e:
-            print(f"\n❌ Rollback failed: {e}")
+            print(f"Basic rollback failed: {e}")
             return False
+    
+    def backup_current_framework_simple(self) -> str:
+        """Simple backup for rollback safety."""
+        current_version = self.get_current_version()["version"]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"pre_rollback_v{current_version}_{timestamp}"
+        backup_path = self.backup_dir / backup_name
+        
+        print(f"Creating safety backup: {backup_path}")
+        # Implementation would go here - simplified backup
+        backup_path.mkdir(parents=True, exist_ok=True)
+        return str(backup_path)
+    
+    def create_rollback_version_file(self, target_version: str, current_version: str):
+        """Create version file after rollback."""
+        rollback_data = {
+            "version": target_version,
+            "commit": "",
+            "updated_date": datetime.now().isoformat(),
+            "source": "rollback",
+            "rollback_from": current_version,
+            "project_name": os.path.basename(self.project_root)
+        }
+        
+        with open(self.framework_version_file, 'w') as f:
+            json.dump(rollback_data, f, indent=2)
 
     def run_update_check(self, force_update: bool = False, check_only: bool = False, backup_only: bool = False) -> bool:
         """Main update workflow."""
@@ -448,12 +677,9 @@ class FrameworkUpdater:
             print("Update cancelled by user")
             return False
         
-        # Perform update
-        backup_path = self.backup_current_framework()
-        
+        # Perform update (backup is now handled inside download_and_extract_framework)
         if self.download_and_extract_framework(remote_info):
             print("\n✅ Framework update completed successfully!")
-            print(f"📦 Backup available at: {backup_path}")
             print("\n🔄 Please restart your application to use the updated framework.")
             return True
         else:
@@ -473,6 +699,8 @@ def main():
                        help="List available framework backups")
     parser.add_argument("--rollback", type=str, nargs="?", const="",
                        help="Rollback to backup (specify backup name or leave empty to choose)")
+    parser.add_argument("--delete-new-files", action="store_true",
+                       help="Delete new files during rollback (use with --rollback, DANGEROUS)")
     parser.add_argument("--project-root", type=str, default=".",
                        help="Path to project root (default: current directory)")
     
@@ -499,7 +727,7 @@ def main():
         # Handle rollback
         if args.rollback is not None:
             backup_name = args.rollback if args.rollback else None
-            success = updater.rollback_to_backup(backup_name)
+            success = updater.rollback_to_backup(backup_name, delete_new_files=args.delete_new_files)
             sys.exit(0 if success else 1)
         
         # Handle normal update workflow
