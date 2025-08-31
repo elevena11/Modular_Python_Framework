@@ -10,6 +10,9 @@ Usage:
     python tools/update_core.py --force        # Force update without prompts
     python tools/update_core.py --check-only   # Only check, don't update
     python tools/update_core.py --backup-only  # Create backup of current framework
+    python tools/update_core.py --list-backups # List available backups
+    python tools/update_core.py --rollback     # Interactive rollback (choose from list)
+    python tools/update_core.py --rollback v1.0.0  # Rollback to specific version
 """
 
 import os
@@ -42,7 +45,9 @@ class FrameworkUpdater:
             "core/",
             "modules/core/",
             "tools/",
+            "ui/",
             "app.py",
+            "run_ui.py",
             "setup_db.py",
             "requirements.txt",
             "framework_version.json"
@@ -266,6 +271,141 @@ class FrameworkUpdater:
         with open(self.framework_version_file, 'w') as f:
             json.dump(tracking_data, f, indent=2)
     
+    def list_backups(self) -> List[Dict[str, Any]]:
+        """List available framework backups."""
+        if not self.backup_dir.exists():
+            return []
+        
+        backups = []
+        for backup_path in self.backup_dir.iterdir():
+            if backup_path.is_dir() and backup_path.name.startswith("framework_v"):
+                # Parse backup directory name: framework_v1.0.0_20250830_223000
+                parts = backup_path.name.split('_')
+                if len(parts) >= 4:
+                    version = parts[1][1:]  # Remove 'v' prefix
+                    date = parts[2]
+                    time = parts[3]
+                    
+                    # Check if .framework_version exists in backup
+                    version_file = backup_path / ".framework_version" 
+                    created = None
+                    if version_file.exists():
+                        try:
+                            import json
+                            with open(version_file, 'r') as f:
+                                backup_data = json.load(f)
+                                created = backup_data.get("updated_date", f"{date}_{time}")
+                        except:
+                            created = f"{date}_{time}"
+                    else:
+                        created = f"{date}_{time}"
+                    
+                    backups.append({
+                        "path": str(backup_path),
+                        "version": version,
+                        "created": created,
+                        "name": backup_path.name
+                    })
+        
+        # Sort by creation time (newest first)
+        backups.sort(key=lambda x: x["created"], reverse=True)
+        return backups
+    
+    def rollback_to_backup(self, backup_name: str = None) -> bool:
+        """Rollback framework to a specific backup."""
+        backups = self.list_backups()
+        
+        if not backups:
+            print("❌ No framework backups found")
+            return False
+        
+        # If no backup specified, show list and prompt
+        if not backup_name:
+            print("📦 Available framework backups:")
+            print("-" * 50)
+            for i, backup in enumerate(backups, 1):
+                print(f"{i}. v{backup['version']} - {backup['created']}")
+            print("-" * 50)
+            
+            try:
+                choice = input("Select backup number (or 'cancel'): ").strip()
+                if choice.lower() == 'cancel':
+                    print("Rollback cancelled")
+                    return False
+                
+                backup_index = int(choice) - 1
+                if backup_index < 0 or backup_index >= len(backups):
+                    print("❌ Invalid backup selection")
+                    return False
+                
+                selected_backup = backups[backup_index]
+            except (ValueError, KeyboardInterrupt):
+                print("\n❌ Rollback cancelled")
+                return False
+        else:
+            # Find backup by name
+            selected_backup = None
+            for backup in backups:
+                if backup["name"] == backup_name or backup["version"] == backup_name.lstrip('v'):
+                    selected_backup = backup
+                    break
+            
+            if not selected_backup:
+                print(f"❌ Backup not found: {backup_name}")
+                return False
+        
+        # Confirm rollback
+        current_version = self.get_current_version()["version"]
+        target_version = selected_backup["version"]
+        
+        print(f"\n🔄 Rollback framework from v{current_version} to v{target_version}?")
+        print(f"📁 Using backup: {selected_backup['name']}")
+        
+        confirm = input("Proceed with rollback? (y/N): ").strip().lower()
+        if confirm not in ['y', 'yes']:
+            print("Rollback cancelled")
+            return False
+        
+        # Perform rollback
+        try:
+            backup_path = Path(selected_backup["path"])
+            
+            # Create backup of current state before rollback
+            print("📦 Creating backup of current state before rollback...")
+            pre_rollback_backup = self.backup_current_framework()
+            
+            # Copy framework files from backup
+            print(f"🔄 Restoring framework from backup...")
+            self.copy_framework_files(backup_path)
+            
+            # Restore version file
+            backup_version_file = backup_path / ".framework_version"
+            if backup_version_file.exists():
+                shutil.copy2(backup_version_file, self.framework_version_file)
+            else:
+                # Create version file for the rollback
+                rollback_data = {
+                    "version": target_version,
+                    "commit": "",
+                    "updated_date": datetime.now().isoformat(),
+                    "source": "rollback",
+                    "rollback_from": current_version,
+                    "project_name": os.path.basename(self.project_root)
+                }
+                
+                with open(self.framework_version_file, 'w') as f:
+                    json.dump(rollback_data, f, indent=2)
+            
+            print(f"\n✅ Rollback completed successfully!")
+            print(f"📦 Framework restored to v{target_version}")
+            print(f"💾 Pre-rollback backup available at: {pre_rollback_backup}")
+            print("\n🔄 Please restart your application to use the rolled-back framework.")
+            return True
+            
+        except Exception as e:
+            print(f"\n❌ Rollback failed: {e}")
+            return False
+
     def run_update_check(self, force_update: bool = False, check_only: bool = False, backup_only: bool = False) -> bool:
         """Main update workflow."""
         print("🔍 Checking framework version...")
@@ -329,6 +469,10 @@ def main():
                        help="Only check for updates, don't apply them")
     parser.add_argument("--backup-only", action="store_true",
                        help="Only create backup of current framework")
+    parser.add_argument("--list-backups", action="store_true",
+                       help="List available framework backups")
+    parser.add_argument("--rollback", type=str, nargs="?", const="",
+                       help="Rollback to backup (specify backup name or leave empty to choose)")
     parser.add_argument("--project-root", type=str, default=".",
                        help="Path to project root (default: current directory)")
     
@@ -337,6 +481,28 @@ def main():
     updater = FrameworkUpdater(args.project_root)
     
     try:
+        # Handle backup listing
+        if args.list_backups:
+            backups = updater.list_backups()
+            if not backups:
+                print("📦 No framework backups found")
+                sys.exit(0)
+            
+            print("📦 Available framework backups:")
+            print("-" * 60)
+            for backup in backups:
+                print(f"v{backup['version']} - {backup['created']}")
+                print(f"  📁 {backup['name']}")
+                print()
+            sys.exit(0)
+        
+        # Handle rollback
+        if args.rollback is not None:
+            backup_name = args.rollback if args.rollback else None
+            success = updater.rollback_to_backup(backup_name)
+            sys.exit(0 if success else 1)
+        
+        # Handle normal update workflow
         success = updater.run_update_check(
             force_update=args.force,
             check_only=args.check_only,
@@ -345,7 +511,7 @@ def main():
         sys.exit(0 if success else 1)
         
     except KeyboardInterrupt:
-        print("\n❌ Update cancelled by user")
+        print("\n❌ Operation cancelled by user")
         sys.exit(1)
     except Exception as e:
         print(f"\n❌ Unexpected error: {e}")

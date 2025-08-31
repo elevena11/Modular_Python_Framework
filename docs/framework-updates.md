@@ -34,7 +34,9 @@ The updater only touches these framework files:
 - `core/` - Framework engine
 - `modules/core/` - Essential framework modules
 - `tools/` - Development tools
+- `ui/` - Streamlit user interface components
 - `app.py` - Main entry point
+- `run_ui.py` - UI launcher
 - `setup_db.py` - Database setup
 - `requirements.txt` - Framework dependencies
 - `framework_version.json` - Version metadata
