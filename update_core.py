@@ -51,12 +51,17 @@ class FrameworkUpdater:
             except (json.JSONDecodeError, FileNotFoundError):
                 print("Warning: Invalid or missing .framework_version file")
         
-        # Try to read from framework_version.json as fallback
-        framework_json = self.project_root / "framework_version.json"
-        if framework_json.exists():
+        # Try to read from framework_manifest.json as fallback
+        manifest_file = self.project_root / "framework_manifest.json"
+        if manifest_file.exists():
             try:
-                with open(framework_json, 'r') as f:
-                    version_data = json.load(f)
+                with open(manifest_file, 'r') as f:
+                    manifest_data = json.load(f)
+                    version_data = {
+                        "version": manifest_data.get("version", "1.0.0"),
+                        "commit": "",
+                        "installed": True
+                    }
                     # Create .framework_version if it doesn't exist
                     self.create_framework_version_file(version_data)
                     return version_data

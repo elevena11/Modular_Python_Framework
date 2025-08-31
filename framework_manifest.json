@@ -1,6 +1,6 @@
 {
-  "version": "1.0.0",
-  "generated_at": "2025-08-31T20:23:04.235592",
+  "version": "1.0.1",
+  "generated_at": "2025-08-31T20:52:30.862776",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
@@ -28,7 +28,6 @@
     "docs/settings.md",
     "docs/streamlit-ui.md",
     "framework_manifest.json",
-    "framework_version.json",
     "install_dependencies.py",
     "modules/core/auth",
     "modules/core/auth/README.md",
@@ -227,6 +226,6 @@
     "ui/utils/security.py",
     "update_core.py"
   ],
-  "file_count": 224,
+  "file_count": 223,
   "generator": "tools/generate_manifest.py"
 }

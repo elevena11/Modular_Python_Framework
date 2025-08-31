@@ -31,7 +31,6 @@ class ManifestGenerator:
             "update_core.py",
             "install_dependencies.py",
             "requirements.txt",
-            "framework_version.json",
             "framework_manifest.json",  # Include the manifest itself
             ".env.example",
             "CLAUDE.md",
@@ -122,16 +121,38 @@ class ManifestGenerator:
         return manifest
     
     def get_version_info(self) -> Dict[str, Any]:
-        """Get current version information."""
-        version_file = self.project_root / "framework_version.json"
-        if version_file.exists():
+        """Get version information from user input."""
+        print("\n📝 Version Information")
+        print("=" * 30)
+        
+        # Get current version from existing manifest if available
+        current_version = "1.0.0"
+        manifest_file = self.project_root / "framework_manifest.json"
+        if manifest_file.exists():
             try:
-                with open(version_file, 'r') as f:
-                    return json.load(f)
+                with open(manifest_file, 'r') as f:
+                    current_manifest = json.load(f)
+                    current_version = current_manifest.get("version", "1.0.0")
+                    print(f"Current version: {current_version}")
             except json.JSONDecodeError:
                 pass
         
-        return {"version": "1.0.0"}
+        # Prompt for new version
+        while True:
+            new_version = input(f"Enter new version (current: {current_version}): ").strip()
+            if not new_version:
+                new_version = current_version
+                break
+            
+            # Basic version validation (x.y.z format)
+            if not new_version.replace('.', '').replace('-', '').replace('+', '').isalnum():
+                print("❌ Invalid version format. Use semantic versioning (e.g., 1.2.3)")
+                continue
+            
+            break
+        
+        print(f"🏷️  Using version: {new_version}")
+        return {"version": new_version}
     
     def save_manifest(self, manifest: Dict[str, Any], output_file: str = "framework_manifest.json") -> None:
         """Save manifest to file."""

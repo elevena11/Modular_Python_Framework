@@ -65,7 +65,6 @@ Modular_Python_Framework/
 ├── docs/                    # Framework documentation
 ├── app.py                  # Main framework entry point
 ├── setup_db.py             # Database initialization
-├── framework_version.json  # Version tracking metadata
 ├── requirements.txt        # Framework dependencies
 ├── CLAUDE.md              # Detailed framework instructions
 └── README.md              # This file
