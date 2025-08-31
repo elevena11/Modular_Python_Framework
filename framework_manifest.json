@@ -1,6 +1,6 @@
 {
-  "version": "1.0.1",
-  "generated_at": "2025-08-31T20:52:30.862776",
+  "version": "1.0.2",
+  "generated_at": "2025-08-31T22:17:18.737323",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
