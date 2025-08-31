@@ -71,11 +71,19 @@ class ModelManagerService:
             # Get configuration
             await self._load_configuration()
             
+            # Check if module is enabled
+            if not self.config.get("enabled", False):
+                self.logger.info("Model manager disabled - no AI features active")
+                return Result.success(data={"initialized": False, "reason": "disabled"})
+            
+            # Load user's model configuration
+            await self._load_user_models()
+            
             # Initialize components
             await self._initialize_components()
             
             # Initialize worker pool if enabled
-            if self.config.get("worker_pool.enabled", True):
+            if self.config.get("worker_pool.enabled", False):
                 pool_result = await self.worker_pool.initialize()
                 if not pool_result.success:
                     self.logger.warning(f"Worker pool initialization failed: {pool_result.error}")
@@ -97,7 +105,6 @@ class ModelManagerService:
         try:
             settings_service = self.app_context.get_service("core.settings.service")
             if settings_service:
-                # Get model manager specific settings
                 # Import the Pydantic model
                 from .settings import ModelManagerSettings
                 
@@ -136,15 +143,18 @@ class ModelManagerService:
         # Extract nested settings from Pydantic model structure
         worker_pool = getattr(settings, 'worker_pool', None)
         embedding_cache = getattr(settings, 'embedding_cache', None)
-        embedding_model = getattr(settings, 'embedding_model', None)
-        t5_summarizer = getattr(settings, 't5_summarizer', None)
         
         return {
+            # Main module settings - Framework infrastructure only
+            "enabled": getattr(settings, 'enabled', False),
+            "models_config_file": getattr(settings, 'models_config_file', "models.config"),
+            "log_model_usage": getattr(settings, 'log_model_usage', True),
+            
             # Worker pool settings
-            "worker_pool.enabled": getattr(worker_pool, 'enabled', True) if worker_pool else True,
+            "worker_pool.enabled": getattr(worker_pool, 'enabled', False) if worker_pool else False,
             "worker_pool.num_workers": getattr(worker_pool, 'num_workers', 2) if worker_pool else 2,
             "worker_pool.devices": getattr(worker_pool, 'devices', ["cuda:0", "cuda:1"]) if worker_pool else ["cuda:0", "cuda:1"],
-            "worker_pool.require_gpu": getattr(worker_pool, 'require_gpu', True) if worker_pool else True,
+            "worker_pool.require_gpu": getattr(worker_pool, 'require_gpu', False) if worker_pool else False,
             "worker_pool.queue_timeout": getattr(worker_pool, 'queue_timeout', 30) if worker_pool else 30,
             "worker_pool.model_idle_timeout": getattr(worker_pool, 'model_idle_timeout', 300) if worker_pool else 300,
             "worker_pool.preload_embeddings": getattr(worker_pool, 'preload_embeddings', False) if worker_pool else False,
@@ -155,9 +165,8 @@ class ModelManagerService:
             "embedding_cache.max_cache_size": getattr(embedding_cache, 'max_cache_size', 10000) if embedding_cache else 10000,
             "embedding_cache.ttl_seconds": getattr(embedding_cache, 'ttl_seconds', 3600) if embedding_cache else 3600,
             
-            # Model settings
-            "models.embedding.local_path": getattr(embedding_model, 'local_path', None) if embedding_model else None,
-            "models.t5_summarizer.name": getattr(t5_summarizer, 'name', None) if t5_summarizer else None,
+            # User models will be loaded from models.config
+            "user_models": {}
         }
     
     def _get_default_config(self) -> Dict[str, Any]:
@@ -167,18 +176,92 @@ class ModelManagerService:
             Default configuration dictionary
         """
         return {
-            "worker_pool.enabled": True,
+            # Main module settings - Framework infrastructure only
+            "enabled": False,
+            "models_config_file": "modules/core/model_manager/models.config",
+            "log_model_usage": True,
+            
+            # Worker pool settings - disabled by default
+            "worker_pool.enabled": False,
             "worker_pool.num_workers": 2,
-            "worker_pool.devices": ["cuda:0", "cuda:1"],
-            "worker_pool.require_gpu": True,
+            "worker_pool.devices": ["auto"],
+            "worker_pool.require_gpu": False,
             "worker_pool.queue_timeout": 30,
             "worker_pool.model_idle_timeout": 300,
-            "worker_pool.preload_embeddings": True,
+            "worker_pool.preload_embeddings": False,
             "worker_pool.load_balancing": "round_robin",
+            
+            # Embedding cache settings
             "embedding_cache.enabled": True,
             "embedding_cache.max_cache_size": 10000,
             "embedding_cache.ttl_seconds": 3600,
+            
+            # User models will be loaded from models.config
+            "user_models": {}
         }
+    
+    async def _load_user_models(self):
+        """Load user's model configuration from models.config file."""
+        import os
+        import yaml
+        
+        models_config_path = self.config.get("models_config_file", "models.config")
+        
+        if not os.path.exists(models_config_path):
+            self.logger.info("No models.config found - AI features available but no models configured")
+            return
+        
+        try:
+            with open(models_config_path, 'r') as f:
+                user_config = yaml.safe_load(f)
+            
+            if not user_config:
+                self.logger.info("Empty models.config file - no models configured")
+                return
+            
+            # Load worker pool settings from user config if present
+            if "worker_pool" in user_config:
+                user_worker_config = user_config["worker_pool"]
+                if "enabled" in user_worker_config:
+                    self.config["worker_pool.enabled"] = user_worker_config["enabled"]
+                if "num_workers" in user_worker_config:
+                    self.config["worker_pool.num_workers"] = user_worker_config["num_workers"]
+                if "devices" in user_worker_config:
+                    self.config["worker_pool.devices"] = user_worker_config["devices"]
+                if "require_gpu" in user_worker_config:
+                    self.config["worker_pool.require_gpu"] = user_worker_config["require_gpu"]
+            
+            # Load embedding cache settings from user config if present
+            if "embedding_cache" in user_config:
+                user_cache_config = user_config["embedding_cache"]
+                if "enabled" in user_cache_config:
+                    self.config["embedding_cache.enabled"] = user_cache_config["enabled"]
+                if "max_cache_size" in user_cache_config:
+                    self.config["embedding_cache.max_cache_size"] = user_cache_config["max_cache_size"]
+                if "ttl_seconds" in user_cache_config:
+                    self.config["embedding_cache.ttl_seconds"] = user_cache_config["ttl_seconds"]
+            
+            # Only load models the user has enabled
+            enabled_models = {}
+            if "models" in user_config:
+                for model_id, model_config in user_config["models"].items():
+                    if model_config.get("enabled", False):
+                        enabled_models[model_id] = model_config
+                        self.logger.info(f"Loading user model: {model_id}")
+                    else:
+                        self.logger.debug(f"Skipping disabled model: {model_id}")
+            
+            self.config["user_models"] = enabled_models
+            
+            if enabled_models:
+                self.logger.info(f"Loaded {len(enabled_models)} enabled models from user configuration")
+            else:
+                self.logger.info("No models enabled in user configuration")
+                
+        except yaml.YAMLError as e:
+            self.logger.error(f"Failed to parse models.config: {e}")
+        except Exception as e:
+            self.logger.error(f"Failed to load user models configuration: {e}")
     
     async def _initialize_components(self):
         """Initialize modular components."""

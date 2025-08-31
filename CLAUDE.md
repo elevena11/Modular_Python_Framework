@@ -8,8 +8,8 @@ This is a **generic modular Python framework** designed for rapid development of
 - **Two-phase initialization** (service registration → complex setup)
 - **Result pattern** for consistent error handling
 - **Database-per-module** for clean separation
-- **Pydantic settings system** with validation and environment overrides
-- **Phase 4 database architecture** with integrity session pattern
+- **Pydantic v2 settings system** with validation and environment overrides
+- **Database architecture** with integrity session pattern
 - **Decorator-based service registration** for clean module integration
 
 ## Framework Architecture
@@ -39,24 +39,24 @@ When choosing between making something "easy to use wrong" vs "impossible to use
 ### Key Framework Components
 
 #### Core Modules (`modules/core/`)
-- **database**: SQLite management, Phase 4 integrity_session pattern
-- **settings**: Pydantic-first configuration management with baseline + overrides
+- **database**: SQLite management with integrity_session pattern
+- **settings**: Pydantic v2 configuration management with baseline + overrides
 - **error_handler**: Standardized error patterns and logging
 - **framework**: Application lifecycle and session management
-- **model_manager**: GPU worker pools and ML model management
+- **model_manager**: Optional AI model management (disabled by default)
 
 #### Module Structure Pattern
 ```
 modules/standard/module_name/
 ├── api.py                 # Module initialization and FastAPI routes  
 ├── services.py            # Main business logic service class
-├── settings_v2.py         # Pydantic configuration schema (Phase 4)
+├── settings.py            # Pydantic v2 configuration schema
 ├── database.py           # Database operations (if needed)
 ├── db_models.py          # SQLAlchemy models (if needed)
 └── api_schemas.py        # Pydantic request/response models
 ```
 
-## Database Architecture (Phase 4)
+## Database Architecture
 
 ### Framework Database (`data/database/framework.db`)
 - Managed by `core.database` module
@@ -69,25 +69,18 @@ modules/standard/module_name/
 - **Location**: `/data/database/module_name.db`
 - **Registration**: Modules register databases with framework for utilities
 
-### **Phase 4 Database Access Pattern**
+### **Database Access Pattern**
 ```python
-# CURRENT PATTERN (Phase 4)
+# CURRENT PATTERN - integrity_session
 async with app_context.database.integrity_session("database_name", "purpose") as session:
     # Database operations with automatic session management
     result = await session.execute(query)
     await session.commit()
-
-# DEPRECATED (still works with warnings)
-session_factory = database_service.get_database_session("database_name")
-async with session_factory() as session:
-    # Old pattern - generates deprecation warnings
 ```
 
 ### Database Implementation Pattern
 
-**For comprehensive database documentation, see: `docs/development-tools/current-database-implementation.md`**
-
-**IMPORTANT**: Use the semantic_core module (`modules/standard/semantic_core/`) as the reference implementation. This pattern has been battle-tested with 566 documents, 159K+ comparisons, and complex database operations.
+**For comprehensive database documentation, see: `docs/database.md`**
 
 #### Quick Reference:
 ```python
@@ -101,7 +94,7 @@ class MyTable(ModuleBase):
 ```
 
 ```python
-# In services.py - Phase 4 pattern
+# In services.py - integrity_session pattern
 async with app_context.database.integrity_session("module_name", "operation_purpose") as session:
     # Database operations here
 ```
@@ -117,18 +110,18 @@ API_SECRET=your_secret
 BOT_TOKEN=your_bot_token
 ```
 
-### Pydantic Settings System (Phase 4)
-**All non-sensitive configuration goes through Pydantic settings system**
+### Pydantic v2 Settings System
+**All non-sensitive configuration goes through Pydantic v2 settings system**
 
-- **Module Settings**: Each module defines `settings_v2.py` with Pydantic model
+- **Module Settings**: Each module defines `settings.py` with Pydantic v2 model
 - **Environment Override**: `CORE_MODULE_NAME_SETTING_NAME=value`
 - **Baseline Creation**: Defaults + environment variables merged once at startup
 - **User Preferences**: Stored in database, merged at runtime
-- **Type Safety**: Full Pydantic validation and type checking
+- **Type Safety**: Full Pydantic v2 validation and type checking
 
 #### Example Pydantic Settings:
 ```python
-# modules/core/framework/settings_v2.py
+# modules/core/framework/settings.py
 class FrameworkSettings(BaseModel):
     model_config = ConfigDict(
         env_prefix="CORE_FRAMEWORK_",
@@ -137,16 +130,16 @@ class FrameworkSettings(BaseModel):
         extra="forbid"
     )
     
-    app_title: str = Field(default="Reality Anchor Hub")
-    debug_mode: bool = Field(default=True)
-    environment: EnvironmentType = Field(default=EnvironmentType.DEVELOPMENT)
+    app_title: str = Field(default="Modular Python Framework")
+    debug_mode: bool = Field(default=False)
+    environment: EnvironmentType = Field(default=EnvironmentType.PRODUCTION)
 ```
 
 ## Important Framework Patterns
 
 ### 1. Result Pattern (MANDATORY)
 ```python
-from modules.core.error_handler.utils import Result
+from core.error_utils import Result
 
 async def some_operation() -> Result:
     try:
@@ -178,7 +171,7 @@ async def initialize_service(self):
     settings_result = await settings_service.get_typed_settings(...)
 ```
 
-### 3. Database Access (Phase 4)
+### 3. Database Access
 ```python
 # Current pattern - use everywhere
 async with app_context.database.integrity_session("database_name", "purpose") as session:
@@ -233,11 +226,11 @@ python tools/scaffold_module.py
 
 ### 2. Development Process
 1. **Configure MODULE_* constants** in api.py for module metadata
-2. **Implement settings_v2.py** with Pydantic configuration schema
+2. **Implement settings.py** with Pydantic v2 configuration schema
 3. **Build services.py** with main business logic
 4. **Add database operations** using `integrity_session()` pattern
 5. **Create API endpoints** in api.py
-6. **Test compliance**: `python tools/compliance/compliance.py validate --module standard.module_name`
+6. **Test compliance**: `python tools/compliance/compliance.py --validate standard.module_name`
 
 ### 3. Framework Integration Testing
 ```bash
@@ -259,7 +252,7 @@ python app.py                         # Start application
 
 # Development  
 python tools/scaffold_module.py       # Create new module
-python tools/compliance/compliance.py validate --module standard.module_name
+python tools/compliance/compliance.py --validate standard.module_name
 
 # Log Management
 python tools/clear_logs.py            # Clear all log files for clean testing
@@ -280,17 +273,15 @@ python -m pytest                      # Run all tests
 - Run compliance checks regularly: `python tools/compliance/compliance.py --validate standard.module_name`
 - Address compliance issues promptly
 
-### Change Documentation (REQUIRED)
-- **Document all changes**: Add entries to `docs/v2/development-journal/YYYY-MM-DD.md`
-- **Standard format**: Technical context, architecture decisions, debugging insights
-- **Document immediately**: Add entries right after implementing changes, not later
-- **Focus on the "why"**: Capture reasoning behind changes for future reference
+### Documentation
+- **Follow patterns**: Use established documentation in `docs/` directory
+- **Update when changing core systems**: Keep documentation current with code changes
+- **Security considerations**: Document any security implications of changes
 
-### Phase 4 Migration Notes
-- **Active modules**: Use `integrity_session()` pattern (no warnings)
-- **Disabled modules**: Will show deprecation warnings when enabled
-- **Migration path**: Replace `get_database_session()` with `integrity_session()`
-- **Purpose logging**: Include descriptive purpose for debugging
+### Database Pattern Notes
+- **Current pattern**: Use `integrity_session()` for all database operations
+- **Purpose logging**: Include descriptive purpose for debugging and monitoring
+- **Session management**: Framework handles all lifecycle automatically
 
 ---
 

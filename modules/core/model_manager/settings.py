@@ -166,18 +166,18 @@ class WorkerPoolConfig(BaseModel):
     model_config = ConfigDict(env_prefix="CORE_MODEL_MANAGER_WORKER_POOL_")
     
     enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable multi-GPU worker pool"
     )
     num_workers: int = Field(
         default=2,
         ge=1,
         le=8,
-        description="Number of worker processes"
+        description="Number of worker processes for concurrent request handling"
     )
     devices: List[str] = Field(
-        default=["cuda:0", "cuda:1"],
-        description="Available GPU devices for workers"
+        default=["auto"],
+        description="GPU devices for workers ('auto' detects all available GPUs, or specify list like ['cuda:0', 'cuda:1'])"
     )
     batch_size: int = Field(
         default=32,
@@ -198,7 +198,7 @@ class WorkerPoolConfig(BaseModel):
         description="Individual worker timeout in seconds"
     )
     preload_embeddings: bool = Field(
-        default=True,
+        default=False,
         description="Preload embedding models on worker startup"
     )
     auto_scaling: bool = Field(
@@ -210,7 +210,7 @@ class WorkerPoolConfig(BaseModel):
         description="Load balancing strategy for task distribution"
     )
     require_gpu: bool = Field(
-        default=True,
+        default=False,
         description="Require GPU availability, fail if CPU-only"
     )
     model_priorities: Dict[str, int] = Field(
@@ -299,14 +299,14 @@ class ModelManagerSettings(BaseModel):
         description="Multi-GPU worker pool configuration"
     )
     
-    # General module settings
+    # General module settings - Framework infrastructure only
     enabled: bool = Field(
-        default=True,
+        default=False,
         description="Enable or disable the model manager service"
     )
-    auto_initialize: bool = Field(
-        default=True,
-        description="Automatically initialize models on startup"
+    models_config_file: str = Field(
+        default="modules/core/model_manager/models.config",
+        description="Path to user model configuration file"
     )
     log_model_usage: bool = Field(
         default=True,

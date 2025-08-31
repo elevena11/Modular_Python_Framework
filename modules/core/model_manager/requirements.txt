@@ -1,0 +1,15 @@
+# AI/ML Dependencies for Model Manager Module
+# These are only installed if the model_manager module is enabled
+
+# Core AI Libraries (large downloads)
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+scikit-learn>=1.3.0
+
+# Text Processing
+protobuf>=3.20.0
+
+# Note: pandas and numpy are in core framework requirements
+# Note: sentencepiece is auto-installed by transformers when needed
+# Note: These are large downloads (2GB+) - only install if using AI features
