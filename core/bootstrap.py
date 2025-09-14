@@ -207,7 +207,12 @@ def _import_all_db_models():
             for module_path in modules_dir.iterdir():
                 if not module_path.is_dir():
                     continue
-                    
+
+                # Skip disabled modules
+                if (module_path / ".disabled").exists():
+                    logger.debug(f"Bootstrap: Skipping disabled module: {module_path.name}")
+                    continue
+
                 db_models_file = module_path / "db_models.py"
                 if db_models_file.exists():
                     try:

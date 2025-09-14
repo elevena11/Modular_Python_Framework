@@ -111,8 +111,7 @@ class ModelManagerService:
                 # Get model manager specific settings
                 settings_result = await settings_service.get_typed_settings(
                     module_id=MODULE_ID,
-                    model_class=ModelManagerSettings,
-                    database_name="settings"
+                    model_class=ModelManagerSettings
                 )
                 if settings_result.success:
                     settings_data = settings_result.data

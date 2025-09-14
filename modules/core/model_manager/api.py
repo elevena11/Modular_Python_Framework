@@ -229,8 +229,7 @@ class ModelManagerModule(DataIntegrityModule):
                 if settings_service:
                     result = await settings_service.get_typed_settings(
                         module_id=self.MODULE_ID,
-                        model_class=ModelManagerSettings,
-                        database_name="settings"  # Explicit database selection
+                        model_class=ModelManagerSettings
                     )
                     
                     if result.success:

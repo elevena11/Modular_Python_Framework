@@ -78,14 +78,12 @@ logger = get_framework_logger(MODULE_ID)
             ServiceParam("module_id", str, required=True,
                         description="Module identifier"),
             ServiceParam("model_class", Type[BaseModel], required=True,
-                        description="Pydantic model class for validation"),
-            ServiceParam("database_name", str, required=True,
-                        description="Database name for user preferences")
+                        description="Pydantic model class for validation")
         ],
         returns=ServiceReturn(BaseModel, "Typed settings instance"),
         examples=[
             ServiceExample(
-                "get_typed_settings('core.my_module', MyModuleSettings, 'settings')",
+                "get_typed_settings('core.my_module', MyModuleSettings)",
                 "MyModuleSettings(setting1='value1', setting2=42)"
             )
         ],

@@ -259,7 +259,7 @@ class ErrorHandlerModule(DataIntegrityModule):
                 try:
                     settings_service = self.app_context.get_service("core.settings.service")
                     if settings_service:
-                        result = await settings_service.get_typed_settings(self.MODULE_ID, ErrorHandlerSettings, "settings")
+                        result = await settings_service.get_typed_settings(self.MODULE_ID, ErrorHandlerSettings)
                         if result.success:
                             settings = result.data  # This is a validated ErrorHandlerSettings instance
                             self.logger.info(f"{self.MODULE_ID}: Loaded typed settings from settings")

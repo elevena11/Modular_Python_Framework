@@ -121,8 +121,7 @@ class SettingsService:
             # Use default database name since we haven't loaded config yet
             result = await self.get_typed_settings(
                 module_id=MODULE_ID,
-                model_class=SettingsModuleSettings,
-                database_name="settings"  # Bootstrap with default, will be configurable after this loads
+                model_class=SettingsModuleSettings
             )
             
             if result.success:
@@ -354,24 +353,23 @@ class SettingsService:
         # Return as string
         return value
     
-    async def get_typed_settings(self, module_id: str, model_class: Type[BaseModel], database_name: str) -> Result:
+    async def get_typed_settings(self, module_id: str, model_class: Type[BaseModel]) -> Result:
         """
         Runtime: Get validated Pydantic model with resolved settings.
-        
+
         Args:
             module_id: Module identifier
             model_class: Pydantic model class for validation
-            database_name: Database to read user preferences from
-            
+
         Returns:
             Result with validated Pydantic model instance
         """
         try:
             # Get baseline (defaults + environment, pre-merged in Phase 2)
             baseline = self.resolved_baseline.get(module_id, {})
-            
-            # Get user preferences from SQL  
-            user_prefs = await self._get_user_preferences(module_id, database_name)
+
+            # Get user preferences from SQL (settings service manages its own database)
+            user_prefs = await self._get_user_preferences(module_id, "settings")
             
             # Merge with priority: baseline + user_prefs
             resolved = {**baseline, **user_prefs}

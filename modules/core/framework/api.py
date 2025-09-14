@@ -158,8 +158,7 @@ class FrameworkModule(DataIntegrityModule):
                     # Get fully validated Pydantic settings
                     result = await settings_service.get_typed_settings(
                         module_id=self.MODULE_ID,
-                        model_class=FrameworkSettings,
-                        database_name="settings"
+                        model_class=FrameworkSettings
                     )
                     
                     if result.success:
