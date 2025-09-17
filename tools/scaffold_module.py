@@ -335,9 +335,10 @@ async def get_info():
         
         # Always include basic decorators and service discovery classes
         imports.extend([
+            "    inject_dependencies,",
             "    register_service,",
             "    ServiceMethod,",
-            "    ServiceParam,", 
+            "    ServiceParam,",
             "    ServiceReturn,",
             "    ServiceExample,",
             "    auto_service_creation,",
@@ -353,7 +354,9 @@ async def get_info():
         if 'api' in config['features']:
             imports.append("    register_api_endpoints,")
             
-        # Build decorator list with enhanced service discovery
+        # Build decorator list with enhanced service discovery - inject_dependencies must be first
+        decorators.append('@inject_dependencies(\'app_context\')')
+
         service_methods = self._generate_service_methods(config, module_id)
         decorators.append(f'@register_service("{module_id}.service", methods=[')
         decorators.extend(service_methods)
