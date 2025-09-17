@@ -11,7 +11,7 @@ from typing import Dict, Any, Optional, List
 from .worker import ModelWorker
 from .states import WorkerState
 from .tasks import WorkerTask, WorkerResult
-from core.error_utils import Result
+from core.error_utils import Result, error_message
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.workers"
@@ -95,7 +95,13 @@ class WorkerPool:
             })
             
         except Exception as e:
-            self.logger.error(f"Error initializing worker pool: {e}")
+            self.logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="WORKER_POOL_INIT_ERROR",
+                details=f"Error initializing worker pool: {e}",
+                location="WorkerPool.initialize()",
+                context={"error": str(e)}
+            ))
             return Result.error(
                 code="WORKER_POOL_INIT_ERROR",
                 message="Failed to initialize worker pool",
@@ -130,7 +136,13 @@ class WorkerPool:
                         self.logger.warning(f"Unknown device type: {device}")
             else:
                 if self.config.get("worker_pool.require_gpu", True):
-                    self.logger.error("CUDA not available and GPU required - CPU usage disabled")
+                    self.logger.error(error_message(
+                        module_id=MODULE_ID,
+                        error_type="GPU_REQUIREMENT_NOT_MET",
+                        details="CUDA not available and GPU required - CPU usage disabled",
+                        location="WorkerPool._validate_devices()",
+                        context={"require_gpu": True, "cuda_available": False}
+                    ))
                     return []
                 else:
                     self.logger.warning("CUDA not available, using CPU fallback")

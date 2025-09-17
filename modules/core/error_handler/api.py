@@ -21,6 +21,7 @@ from core.decorators import (
     ServiceReturn,
     ServiceExample,
     enforce_data_integrity,
+    require_services,
     module_health_check,
     graceful_shutdown,
     force_shutdown,
@@ -173,9 +174,10 @@ from .settings import ErrorHandlerSettings
     )
 ], priority=20)  # Foundation module priority
 @inject_dependencies("app_context")
+@require_services(["core.settings.service"])
 @auto_service_creation(service_class="ErrorRegistry")
 @initialization_sequence("setup_infrastructure", "create_registry", phase="phase1")
-@phase2_operations("initialize_registry", dependencies=["core.settings.service"], priority=30)
+@phase2_operations("initialize_phase2", dependencies=["core.settings.service"], priority=20)
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @graceful_shutdown(method="cleanup_resources", timeout=30, priority=20)
@@ -246,7 +248,7 @@ class ErrorHandlerModule(DataIntegrityModule):
         
         self.logger.info(f"{self.MODULE_ID}: Registry created and Phase 1 complete")
     
-    async def initialize_registry(self):
+    async def initialize_phase2(self):
         """Framework calls automatically in Phase 2 - Initialize error registry with settings.
         app_context available via self.app_context (injected by decorators)."""
         self.logger.info(f"{self.MODULE_ID}: Phase 2 - Initializing registry")
@@ -254,21 +256,17 @@ class ErrorHandlerModule(DataIntegrityModule):
         # Initialize the registry
         if self.service_instance:
             try:
+                # Services guaranteed available via @require_services decorator
+                settings_service = self.get_required_service("core.settings.service")
+
                 # Load typed settings from settings
                 settings = None
-                try:
-                    settings_service = self.app_context.get_service("core.settings.service")
-                    if settings_service:
-                        result = await settings_service.get_typed_settings(self.MODULE_ID, ErrorHandlerSettings)
-                        if result.success:
-                            settings = result.data  # This is a validated ErrorHandlerSettings instance
-                            self.logger.info(f"{self.MODULE_ID}: Loaded typed settings from settings")
-                        else:
-                            self.logger.warning(f"{self.MODULE_ID}: Failed to get typed settings: {result.error}")
-                    else:
-                        self.logger.warning(f"{self.MODULE_ID}: settings service not available")
-                except Exception as e:
-                    self.logger.warning(f"{self.MODULE_ID}: Error loading typed settings: {e}")
+                result = await settings_service.get_typed_settings(self.MODULE_ID, ErrorHandlerSettings)
+                if result.success:
+                    settings = result.data  # This is a validated ErrorHandlerSettings instance
+                    self.logger.info(f"{self.MODULE_ID}: Loaded typed settings from settings")
+                else:
+                    self.logger.warning(f"{self.MODULE_ID}: Failed to get typed settings: {result.message}")
                 
                 # Clean Pydantic-only implementation
                 if settings is None:
@@ -298,7 +296,7 @@ class ErrorHandlerModule(DataIntegrityModule):
                     self.logger.info(f"{self.MODULE_ID}: Registry already initialized")
                     
             except Exception as e:
-                # Direct logging instead of error_message() in error_handler to prevent loops
+                # Direct logging instead of error_message() in error_handler to prevent loops, This only apply to error_handler module, all other modules are safe and will not create loops.
                 self.logger.error(f"Error_handler: Exception initializing registry: {str(e)}")
         else:
             self.logger.warning(f"Error_handler: Registry not available - knowledge building features disabled")

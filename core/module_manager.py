@@ -25,6 +25,7 @@ from pathlib import Path
 
 from core.module_processor import ModuleProcessor
 from core.decorators import get_module_metadata
+from core.error_utils import error_message
 
 
 @dataclass
@@ -94,8 +95,20 @@ class ModuleManager:
         # Report modules that failed to load (expected but not discovered)
         failed_modules = set(expected_modules) - set(discovered_modules)
         if failed_modules:
-            self.logger.error(f"FAILED TO LOAD {len(failed_modules)} modules: {sorted(failed_modules)}")
-            self.logger.error("These modules have api.py files but failed during discovery - check for import errors, decorator issues, or class instantiation problems")
+            self.logger.error(error_message(
+                module_id="core.module_manager",
+                error_type="MODULE_DISCOVERY_FAILED",
+                details=f"Failed to load {len(failed_modules)} modules: {sorted(failed_modules)}",
+                location="discover_modules()",
+                context={"failed_modules": failed_modules, "total_failed": len(failed_modules)}
+            ))
+            self.logger.error(error_message(
+                module_id="core.module_manager",
+                error_type="MODULE_DISCOVERY_GUIDANCE",
+                details="These modules have api.py files but failed during discovery - check for import errors, decorator issues, or class instantiation problems",
+                location="discover_modules()",
+                context={"failed_modules": failed_modules}
+            ))
         else:
             self.logger.info(f"All {len(expected_modules)} expected modules discovered successfully")
         
@@ -112,10 +125,22 @@ class ModuleManager:
             try:
                 module_obj = importlib.import_module(f"{import_path}.api")
             except Exception as e:
-                self.logger.error(f"{import_path}.api: Import failed - {e}")
+                self.logger.error(error_message(
+                    module_id="core.module_manager",
+                    error_type="MODULE_IMPORT_FAILED",
+                    details=f"Module import failed: {str(e)}",
+                    location="_try_load_module()",
+                    context={"import_path": import_path, "exception_type": type(e).__name__}
+                ))
                 # Log more detail for common issues
                 if "methods" in str(e) and "ServiceMethod" in str(e):
-                    self.logger.error(f"{import_path}: This module likely uses old @register_service pattern - missing 'methods' parameter")
+                    self.logger.error(error_message(
+                        module_id="core.module_manager",
+                        error_type="MODULE_OLD_DECORATOR_PATTERN",
+                        details="This module likely uses old @register_service pattern - missing 'methods' parameter",
+                        location="_try_load_module()",
+                        context={"import_path": import_path}
+                    ))
                 return None
             
             # Find module class with required attributes
@@ -173,7 +198,13 @@ class ModuleManager:
             )
             
         except Exception as e:
-            self.logger.error(f"{module_path}: Module info extraction failed - {e}")
+            self.logger.error(error_message(
+                module_id="core.module_manager",
+                error_type="MODULE_INFO_EXTRACTION_FAILED",
+                details=f"Module info extraction failed: {str(e)}",
+                location="_extract_module_info()",
+                context={"module_path": module_path, "exception_type": type(e).__name__}
+            ))
             return None
     
     async def load_modules(self, modules: List[ModuleInfo]):
@@ -187,7 +218,13 @@ class ModuleManager:
                 # Use ModuleProcessor for complete decorator automation
                 result = await self.processor.process_module(module_info.class_obj, module_info.id)
                 if not result.success:
-                    self.logger.error(f"{module_info.id}: Processing failed - {result.error}")
+                    self.logger.error(error_message(
+                        module_id="core.module_manager",
+                        error_type="MODULE_PROCESSING_FAILED",
+                        details=f"Module processing failed: {result.error}",
+                        location="process_phase1()",
+                        context={"target_module_id": module_info.id, "result_error": result.error}
+                    ))
                     continue
                 
                 # FULL decorator pattern ONLY: Constructor gets app_context via @inject_dependencies
@@ -213,7 +250,13 @@ class ModuleManager:
                 self.logger.info(f"{module_info.id}: Phase 1 complete")
                 
             except Exception as e:
-                self.logger.error(f"{module_info.id}: Phase 1 failed - {e}")
+                self.logger.error(error_message(
+                    module_id="core.module_manager",
+                    error_type="MODULE_PHASE1_FAILED",
+                    details=f"Phase 1 processing failed: {str(e)}",
+                    location="process_phase1()",
+                    context={"target_module_id": module_info.id, "exception_type": type(e).__name__}
+                ))
                 continue
         
         # Phase 2: Initialize in Phase 2 priority order and dependency order
@@ -245,7 +288,13 @@ class ModuleManager:
                     progress = True
             
             if not progress and remaining:
-                self.logger.error(f"Circular dependency detected in: {[m.id for m in remaining]}")
+                self.logger.error(error_message(
+                    module_id="core.module_manager",
+                    error_type="CIRCULAR_DEPENDENCY_DETECTED",
+                    details="Circular dependency detected in modules",
+                    location="process_phase2()",
+                    context={"remaining_modules": [m.id for m in remaining], "dependency_count": len(remaining)}
+                ))
                 break
         
         self.logger.info(f"Module loading complete: {len(initialized)} modules initialized")
@@ -268,7 +317,13 @@ class ModuleManager:
             return result
             
         except Exception as e:
-            self.logger.error(f"{module_info.id}: Phase 2 failed - {e}")
+            self.logger.error(error_message(
+                module_id="core.module_manager",
+                error_type="MODULE_PHASE2_FAILED",
+                details=f"Phase 2 processing failed: {str(e)}",
+                location="process_phase2()",
+                context={"target_module_id": module_info.id, "exception_type": type(e).__name__}
+            ))
             return False
     
     # ============================================================================

@@ -201,7 +201,7 @@ class {class_name}Module(DataIntegrityModule):
         
         logger.info(f"{{self.MODULE_ID}} created with FULL decorator system")
     
-    async def initialize_with_dependencies(self):
+    async def initialize_phase2(self):
         """Phase 2: Initialize with guaranteed service access."""
         logger.info(f"{{self.MODULE_ID}}: Phase 2 - Initializing with dependencies")
         
@@ -231,7 +231,7 @@ class {class_name}Module(DataIntegrityModule):
                 module_id=self.MODULE_ID,
                 error_type="PHASE2_INIT_ERROR",
                 details=f"Phase 2 initialization failed: {{str(e)}}",
-                location="initialize_with_dependencies()"
+                location="initialize_phase2()"
             ))
             return False
     
@@ -351,7 +351,7 @@ async def get_info():
         if 'database' in config['features']:
             imports.append("    require_services,")
         if 'api' in config['features']:
-            imports.append("    provides_api_endpoints,")
+            imports.append("    register_api_endpoints,")
             
         # Build decorator list with enhanced service discovery
         service_methods = self._generate_service_methods(config, module_id)
@@ -362,11 +362,11 @@ async def get_info():
         if 'database' in config['features']:
             decorators.append('@require_services(["core.database.service", "core.database.crud_service"])')
         
-        decorators.append('@phase2_operations("initialize_with_dependencies", priority=200)')
+        decorators.append('@phase2_operations("initialize_phase2")')
         decorators.append('@auto_service_creation(service_class="' + config['name'].replace('_', ' ').title().replace(' ', '') + 'Service")')
         
         if 'api' in config['features']:
-            decorators.append(f'@provides_api_endpoints(router_name="router", prefix="/api/v1/{config["name"]}")')
+            decorators.append('@register_api_endpoints(router_name="router")')
             
         decorators.extend([
             '@enforce_data_integrity(strict_mode=True, anti_mock=True)',

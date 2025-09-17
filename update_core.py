@@ -189,6 +189,61 @@ class FrameworkUpdater:
         
         return orphaned_files
 
+    def backup_files_from_manifest(self, files_to_backup: List[str]) -> str:
+        """Create backup of files that will be updated according to manifest."""
+        current_version = self.get_current_version()["version"]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"framework_v{current_version}_{timestamp}"
+        backup_path = self.backup_dir / backup_name
+
+        # Ensure backup directory exists
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
+        backup_path.mkdir(exist_ok=True)
+
+        print(f"Creating backup: {backup_path}")
+
+        # Track files for rollback purposes
+        rollback_info = {
+            "backed_up_files": [],      # Files that were backed up (restore these on rollback)
+            "new_files": [],            # New files that didn't exist (delete these on rollback)
+            "backup_timestamp": timestamp,
+            "original_version": current_version,
+            "project_root": str(self.project_root)
+        }
+
+        # Backup only files that exist locally AND are in the manifest
+        backed_up_count = 0
+        for file_path in files_to_backup:
+            local_path = self.project_root / file_path
+
+            if local_path.exists():
+                print(f"   Backing up: {file_path}")
+                backup_target = backup_path / file_path
+
+                if local_path.is_dir():
+                    shutil.copytree(local_path, backup_target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
+                else:
+                    backup_target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(local_path, backup_target)
+
+                rollback_info["backed_up_files"].append(file_path)
+                backed_up_count += 1
+            else:
+                print(f"   New file (no backup needed): {file_path}")
+                rollback_info["new_files"].append(file_path)
+
+        # Always backup version tracking file if it exists
+        if self.framework_version_file.exists():
+            shutil.copy2(self.framework_version_file, backup_path / ".framework_version")
+
+        # Save rollback information
+        rollback_info_file = backup_path / ".rollback_info.json"
+        with open(rollback_info_file, 'w') as f:
+            json.dump(rollback_info, f, indent=2)
+
+        print(f"✅ Backup created: {backup_path} ({backed_up_count} items backed up, {len(rollback_info['new_files'])} new files tracked)")
+        return str(backup_path)
+
     def backup_files_from_zip_content(self, zip_content_list: List[str]) -> str:
         """Create backup of files that exist in both local project and zip file."""
         current_version = self.get_current_version()["version"]
@@ -329,11 +384,18 @@ class FrameworkUpdater:
                 else:
                     print("📋 No manifest found in new version - orphan detection skipped")
                 
-                # Create backup of files that will be replaced
-                backup_path = self.backup_files_from_zip_content(zip_content_list)
-                
-                # Copy framework files to project
-                self.copy_framework_files(framework_dir, zip_content_list)
+                # Create backup of files that will be replaced/updated
+                files_to_backup = []
+                if new_manifest and "framework_files" in new_manifest:
+                    files_to_backup = new_manifest["framework_files"]
+                else:
+                    # Fallback to core framework files only
+                    files_to_backup = zip_content_list
+
+                backup_path = self.backup_files_from_manifest(files_to_backup)
+
+                # Copy framework files to project using manifest
+                self.copy_framework_files(framework_dir, new_manifest)
                 
                 # Update version tracking
                 self.update_version_tracking(remote_info)
@@ -346,36 +408,99 @@ class FrameworkUpdater:
             print(f"❌ Error downloading/extracting framework: {e}")
             return False
     
-    def copy_framework_files(self, source_dir: Path, zip_content_list: List[str]):
-        """Copy framework files from extracted directory to project."""
+    def get_framework_files_from_source(self, source_dir: Path) -> List[str]:
+        """Get list of framework files by scanning source directory and excluding user areas."""
+        framework_files = []
+
+        # Framework directories that should be fully included
+        framework_dirs = [
+            "core",           # Core framework engine
+            "modules/core",   # Core framework modules
+            "tools",          # Development tools
+            "ui",             # Streamlit UI components
+            "docs"            # All documentation (both core and project-level)
+        ]
+
+        # Framework root files that should be included
+        framework_root_files = [
+            "app.py", "run_ui.py", "setup_db.py", "update_core.py",
+            "install_dependencies.py", "requirements.txt", "framework_manifest.json",
+            ".env.example", "CLAUDE.md", "README.md"
+        ]
+
+        # Scan framework directories
+        for dir_name in framework_dirs:
+            dir_path = source_dir / dir_name
+            if dir_path.exists() and dir_path.is_dir():
+                # Add all files in this directory recursively
+                for root, dirs, files in os.walk(dir_path):
+                    # Skip __pycache__ directories
+                    dirs[:] = [d for d in dirs if d != '__pycache__']
+
+                    for file in files:
+                        # Skip compiled Python files
+                        if file.endswith(('.pyc', '.pyo')):
+                            continue
+
+                        file_path = Path(root) / file
+                        relative_path = file_path.relative_to(source_dir)
+                        framework_files.append(str(relative_path))
+
+        # Add framework root files
+        for file_name in framework_root_files:
+            file_path = source_dir / file_name
+            if file_path.exists():
+                framework_files.append(file_name)
+
+        return sorted(framework_files)
+
+    def copy_framework_files(self, source_dir: Path, new_manifest: Optional[Dict[str, Any]]):
+        """Copy framework files from extracted directory to project using directory-based approach."""
         print("📋 Updating framework files...")
-        
-        # Copy only files that are in the zip content list
-        for item_name in zip_content_list:
-            source_path = source_dir / item_name
-            target_path = self.project_root / item_name
-            
+
+        # Get framework files by scanning directories (not manifest)
+        files_to_update = self.get_framework_files_from_source(source_dir)
+        print(f"📋 Found {len(files_to_update)} framework files to update")
+
+        # Show first few files for confirmation
+        print("📋 Framework files include:")
+        for file_path in files_to_update[:5]:
+            print(f"   - {file_path}")
+        if len(files_to_update) > 5:
+            print(f"   ... and {len(files_to_update) - 5} more files")
+
+        updated_count = 0
+        missing_count = 0
+
+        # Update framework files
+        for file_path in files_to_update:
+            source_path = source_dir / file_path
+            target_path = self.project_root / file_path
+
             if not source_path.exists():
-                print(f"   Warning: {item_name} not found in extracted files")
+                print(f"   Warning: {file_path} not found in new framework")
+                missing_count += 1
                 continue
-            
+
             # Remove existing target if it exists
             if target_path.exists():
-                print(f"   Replacing: {item_name}")
                 if target_path.is_dir():
                     shutil.rmtree(target_path)
                 else:
                     target_path.unlink()
-            else:
-                print(f"   Adding new: {item_name}")
-            
-            # Copy the new file/directory
+
+            # Ensure parent directory exists
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Copy the new file
             if source_path.is_dir():
                 shutil.copytree(source_path, target_path, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
             else:
                 shutil.copy2(source_path, target_path)
-        
-        print("✅ Framework files updated")
+
+            updated_count += 1
+
+        print(f"✅ Framework files updated: {updated_count} files updated, {missing_count} files missing from new framework")
     
     def update_version_tracking(self, remote_info: Dict[str, Any]):
         """Update .framework_version file after successful update."""

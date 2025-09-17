@@ -56,6 +56,52 @@ class MyModule(DataIntegrityModule):
 - Integrates with FastAPI's automatic documentation
 - No manual route registration needed
 
+### @require_services
+
+Declares service dependencies and enables safe service access via `get_required_service()`.
+
+```python
+from core.decorators import require_services
+
+@require_services(["core.settings.service", "core.database.service"])
+class MyModule(DataIntegrityModule):
+    async def initialize_phase2(self):
+        # Services guaranteed available via decorator
+        settings_service = self.get_required_service("core.settings.service")
+        database_service = self.get_required_service("core.database.service")
+```
+
+**Parameters:**
+- `services` (List[str]): List of required service names
+
+**Behavior:**
+- Ensures services are available before Phase 2 operations
+- Provides safe `get_required_service()` method for accessing dependencies
+- Framework validates dependencies are met before initialization
+
+### @phase2_operations
+
+Defines Phase 2 initialization methods with optional priority ordering.
+
+```python
+from core.decorators import phase2_operations
+
+@phase2_operations("initialize_phase2", priority=100)
+class MyModule(DataIntegrityModule):
+    async def initialize_phase2(self):
+        # Complex initialization with service access
+        pass
+```
+
+**Parameters:**
+- `method_name` (str): Name of Phase 2 method (standardized to "initialize_phase2")
+- `priority` (int): Initialization order (lower numbers = earlier, default: 100)
+
+**Behavior:**
+- Automatically calls the specified method during Phase 2
+- Ensures proper initialization order across modules
+- Standard priorities: core infrastructure (5-10), services (20-40), application (100)
+
 ## Module Constants
 
 Every module must define these constants:
@@ -78,44 +124,53 @@ class MyModule(DataIntegrityModule):
 ```python
 # modules/standard/user_manager/api.py
 from fastapi import APIRouter, Request, HTTPException
-from core.decorators import register_service, register_api_endpoints  
+from core.decorators import (
+    register_service, register_api_endpoints, require_services,
+    phase2_operations, auto_service_creation, inject_dependencies
+)
 from core.module_base import DataIntegrityModule
 from .services import UserService
 from .api_schemas import CreateUserRequest, UserResponse
 
 @register_service("user_manager.service")
 @register_api_endpoints("router")
+@require_services(["core.settings.service", "core.database.service"])
+@phase2_operations("initialize_phase2", priority=100)
+@auto_service_creation(service_class="UserService")
+@inject_dependencies("app_context")
 class UserManagerModule(DataIntegrityModule):
     MODULE_ID = "standard.user_manager"
     MODULE_VERSION = "1.0.0"
     MODULE_DESCRIPTION = "User management and authentication"
-    
+
     def __init__(self):
         super().__init__()
         self.router = APIRouter(tags=["user-management"])
         self.setup_routes()
-    
+
     def setup_routes(self):
         @self.router.post("/users", response_model=UserResponse)
         async def create_user(request: CreateUserRequest, http_request: Request):
             service = http_request.app.state.app_context.get_service("user_manager.service")
             result = await service.create_user(request.name, request.email)
-            
+
             if not result.success:
                 raise HTTPException(status_code=400, detail=result.message)
-                
+
             return UserResponse(id=result.data["id"], name=result.data["name"])
-    
+
     def setup_infrastructure(self):
         """Phase 1: Infrastructure setup only."""
         self.logger.info(f"{self.MODULE_ID}: Setting up infrastructure")
         # Create directories, configure logging, etc.
-    
-    async def initialize_service(self):
+
+    async def initialize_phase2(self):
         """Phase 2: Complex initialization with service access."""
-        # Access other services, setup database, etc.
-        settings_service = self.app_context.get_service("core.settings.service")
-        await self.setup_database_tables()
+        # Access other services via @require_services pattern
+        settings_service = self.get_required_service("core.settings.service")
+        # Service instance available via @auto_service_creation
+        if self.service_instance:
+            await self.service_instance.initialize()
 ```
 
 ## Two-Phase Initialization
@@ -140,21 +195,22 @@ def setup_infrastructure(self):
     # settings = self.app_context.get_service("core.settings")  # Will fail!
 ```
 
-### Phase 2: initialize_service()
+### Phase 2: initialize_phase2()
 - **Full framework access** - All services available
 - Database operations, external connections
 - Complex initialization logic
 
 ```python
-async def initialize_service(self):
+@require_services(["core.settings.service", "core.database.service"])
+async def initialize_phase2(self):
     """Phase 2 - Complex initialization."""
-    # OK: Access other services
-    settings_service = self.app_context.get_service("core.settings.service")
-    database_service = self.app_context.get_service("core.database.service")
-    
+    # OK: Access other services via @require_services pattern
+    settings_service = self.get_required_service("core.settings.service")
+    database_service = self.get_required_service("core.database.service")
+
     # OK: Database operations
     await self.create_database_tables()
-    
+
     # OK: External connections
     await self.connect_to_external_api()
 ```

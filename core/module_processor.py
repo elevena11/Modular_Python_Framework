@@ -326,14 +326,23 @@ class ModuleProcessor:
             
             # Check anti-mock protection
             if not integrity_config.get('anti_mock_protection', True):
-                self.logger.warning(f"Module {module_id} has anti-mock protection disabled")
+                self.logger.warning(error_message(
+                    module_id="core.module_processor",
+                    error_type="ANTI_MOCK_PROTECTION_DISABLED",
+                    details=f"Module {module_id} has anti-mock protection disabled",
+                    location="_validate_data_integrity_requirements()",
+                    context={"target_module_id": module_id}
+                ))
             
             # Validate module class inherits from integrity base classes
             if not issubclass(module_class, DataIntegrityModule):
-                self.logger.warning(
-                    f"Module {module_id} does not inherit from DataIntegrityModule. "
-                    f"Consider migrating to base classes for automatic integrity validation."
-                )
+                self.logger.warning(error_message(
+                    module_id="core.module_processor",
+                    error_type="MODULE_MISSING_INTEGRITY_BASE",
+                    details=f"Module {module_id} does not inherit from DataIntegrityModule. Consider migrating to base classes for automatic integrity validation.",
+                    location="_validate_data_integrity_requirements()",
+                    context={"target_module_id": module_id, "module_class": module_class.__name__}
+                ))
             
             self.logger.debug(f"Module {module_id} data integrity requirements validated")
             return Result.success(data={'integrity_enforced': True})
@@ -436,7 +445,13 @@ class ModuleProcessor:
                     # Get the module instance to access services it creates
                     module_instance = self.app_context.get_module_instance(module_id)
                     if not module_instance:
-                        self.logger.warning(f"{module_id}: Module instance still not available for service '{service_name}' registration")
+                        self.logger.warning(error_message(
+                            module_id="core.module_processor",
+                            error_type="SERVICE_REGISTRATION_NO_INSTANCE",
+                            details=f"Module instance still not available for service '{service_name}' registration",
+                            location="_register_services()",
+                            context={"target_module_id": module_id, "service_name": service_name}
+                        ))
                         continue
                     
                     # Try to get service instance from module's attributes
@@ -484,10 +499,22 @@ class ModuleProcessor:
                         # Update runtime info with service details
                         self._add_service_to_runtime_info(module_id, service_name, type(service_instance).__name__)
                     else:
-                        self.logger.warning(f"{module_id}: Could not find or create service instance for '{service_name}'")
+                        self.logger.warning(error_message(
+                            module_id="core.module_processor",
+                            error_type="SERVICE_INSTANCE_NOT_FOUND",
+                            details=f"Could not find or create service instance for '{service_name}'",
+                            location="_register_services()",
+                            context={"target_module_id": module_id, "service_name": service_name}
+                        ))
                         
                 except Exception as e:
-                    self.logger.error(f"{module_id}: Error registering service '{service_name}': {str(e)}")
+                    self.logger.error(error_message(
+                        module_id="core.module_processor",
+                        error_type="SERVICE_REGISTRATION_ERROR",
+                        details=f"Error registering service '{service_name}': {str(e)}",
+                        location="_register_services()",
+                        context={"target_module_id": module_id, "service_name": service_name, "exception_type": type(e).__name__}
+                    ))
                     continue
             
             self.processing_stats['services_registered'] += registered_count
@@ -520,13 +547,25 @@ class ModuleProcessor:
             constructor_args = auto_creation_config.get('constructor_args', {})
             
             if not service_class_name:
-                self.logger.warning(f"{module_id}: AUTO-SERVICE-CREATION - No service class specified")
+                self.logger.warning(error_message(
+                    module_id="core.module_processor",
+                    error_type="AUTO_SERVICE_NO_CLASS_SPECIFIED",
+                    details="AUTO-SERVICE-CREATION - No service class specified",
+                    location="_create_auto_service()",
+                    context={"target_module_id": module_id}
+                ))
                 return Result.success(data={'services_created': 0})
             
             # Get the module instance
             module_instance = self.app_context.get_module_instance(module_id)
             if not module_instance:
-                self.logger.error(f"{module_id}: AUTO-SERVICE-CREATION - Module instance not available")
+                self.logger.error(error_message(
+                    module_id="core.module_processor",
+                    error_type="AUTO_SERVICE_NO_MODULE_INSTANCE",
+                    details="AUTO-SERVICE-CREATION - Module instance not available",
+                    location="_create_auto_service()",
+                    context={"target_module_id": module_id}
+                ))
                 return Result.error(
                     code="MODULE_INSTANCE_NOT_AVAILABLE",
                     message=f"Module instance not available for auto service creation in {module_id}",
@@ -560,7 +599,13 @@ class ModuleProcessor:
                 return Result.success(data={'services_created': 1, 'service_class': service_class_name})
                 
             except (ImportError, AttributeError) as e:
-                self.logger.error(f"{module_id}: AUTO-SERVICE-CREATION - Could not create service '{service_class_name}': {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.module_processor",
+                    error_type="AUTO_SERVICE_CREATION_FAILED",
+                    details=f"AUTO-SERVICE-CREATION - Could not create service '{service_class_name}': {str(e)}",
+                    location="_create_auto_service()",
+                    context={"target_module_id": module_id, "service_class_name": service_class_name, "exception_type": type(e).__name__}
+                ))
                 return Result.error(
                     code="SERVICE_CREATION_FAILED",
                     message=f"Failed to create service {service_class_name} for {module_id}",
@@ -591,7 +636,13 @@ class ModuleProcessor:
             constructor_args = auto_creation_config.get('constructor_args', {})
             
             if not service_class_name:
-                self.logger.warning(f"{module_id}: AUTO-SERVICE-CREATION - No service class specified")
+                self.logger.warning(error_message(
+                    module_id="core.module_processor",
+                    error_type="AUTO_SERVICE_NO_CLASS_SPECIFIED",
+                    details="AUTO-SERVICE-CREATION - No service class specified",
+                    location="_create_auto_service()",
+                    context={"target_module_id": module_id}
+                ))
                 return Result.success(data={'services_created': 0})
             
             try:
@@ -644,7 +695,13 @@ class ModuleProcessor:
                 return Result.success(data={'services_created': 1, 'service_class': service_class_name})
                 
             except (ImportError, AttributeError) as e:
-                self.logger.error(f"{module_id}: AUTO-SERVICE-CREATION - Failed to create {service_class_name}: {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.module_processor",
+                    error_type="AUTO_SERVICE_CREATION_EXCEPTION",
+                    details=f"AUTO-SERVICE-CREATION - Failed to create {service_class_name}: {str(e)}",
+                    location="_create_auto_service()",
+                    context={"target_module_id": module_id, "service_class_name": service_class_name, "exception_type": type(e).__name__}
+                ))
                 return Result.error(
                     code="SERVICE_CREATION_FAILED",
                     message=f"Failed to create service {service_class_name} for {module_id}",
@@ -652,7 +709,13 @@ class ModuleProcessor:
                 )
                 
         except Exception as e:
-            self.logger.error(f"{module_id}: AUTO-SERVICE-CREATION - Unexpected error: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.module_processor",
+                error_type="AUTO_SERVICE_UNEXPECTED_ERROR",
+                details=f"AUTO-SERVICE-CREATION - Unexpected error: {str(e)}",
+                location="_create_auto_service()",
+                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+            ))
             return Result.error(
                 code="AUTO_SERVICE_CREATION_FAILED",
                 message=f"Failed to create auto services for {module_id}",
@@ -694,7 +757,13 @@ class ModuleProcessor:
                     'type': 'success'
                 })
             else:
-                self.logger.warning(f"{module_id}: Settings V2 registration failed: {registration_result.message}")
+                self.logger.warning(error_message(
+                    module_id="core.module_processor",
+                    error_type="SETTINGS_V2_REGISTRATION_FAILED",
+                    details=f"Settings V2 registration failed: {registration_result.message}",
+                    location="_process_settings_v2()",
+                    context={"target_module_id": module_id, "result_message": registration_result.message}
+                ))
                 return Result.error(
                     code="SETTINGS_REGISTRATION_FAILED",
                     message=f"Settings V2 registration failed for {module_id}: {registration_result.message}",
@@ -702,7 +771,13 @@ class ModuleProcessor:
                 )
                 
         except Exception as e:
-            self.logger.error(f"{module_id}: Error processing Settings V2: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.module_processor",
+                error_type="SETTINGS_V2_PROCESSING_ERROR",
+                details=f"Error processing Settings V2: {str(e)}",
+                location="_process_settings_v2()",
+                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+            ))
             return Result.error(
                 code="SETTINGS_PROCESSING_ERROR",
                 message=f"Failed to process Settings V2 for {module_id}",
@@ -1115,7 +1190,13 @@ centralized registration Benefits:
             # Get the module instance from app_context
             module_instance = self.app_context.get_module_instance(module_id)
             if not module_instance:
-                self.logger.error(f"No module instance found for {module_id}")
+                self.logger.error(error_message(
+                    module_id="core.module_processor",
+                    error_type="PHASE2_NO_MODULE_INSTANCE",
+                    details="No module instance found for Phase 2 execution",
+                    location="_execute_phase2_methods()",
+                    context={"target_module_id": module_id}
+                ))
                 return False
             
             for method_name in methods:
@@ -1129,12 +1210,24 @@ centralized registration Benefits:
                     else:
                         method()
                 else:
-                    self.logger.warning(f"{module_id}: Phase 2 method {method_name} not found")
+                    self.logger.warning(error_message(
+                        module_id="core.module_processor",
+                        error_type="PHASE2_METHOD_NOT_FOUND",
+                        details=f"Phase 2 method {method_name} not found",
+                        location="_execute_phase2_methods()",
+                        context={"target_module_id": module_id, "method_name": method_name}
+                    ))
             
             return True
             
         except Exception as e:
-            self.logger.error(f"Error executing Phase 2 methods for {module_id}: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.module_processor",
+                error_type="PHASE2_EXECUTION_ERROR",
+                details=f"Error executing Phase 2 methods for {module_id}: {str(e)}",
+                location="_execute_phase2_methods()",
+                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+            ))
             return False
     
     async def _register_auto_created_services(self, module_id: str, service_instance) -> int:
@@ -1163,7 +1256,13 @@ centralized registration Benefits:
             return registered_count
             
         except Exception as e:
-            self.logger.error(f"{module_id}: Error registering auto-created services: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.module_processor",
+                error_type="AUTO_SERVICE_REGISTRATION_ERROR",
+                details=f"Error registering auto-created services: {str(e)}",
+                location="_register_auto_created_services()",
+                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+            ))
             return 0
     
     async def execute_phase1_methods(self, module_id: str, module_instance) -> Result:
@@ -1198,13 +1297,25 @@ centralized registration Benefits:
                     executed_count += 1
                     self.logger.debug(f"{module_id}: Phase 1 method {method_name} completed")
                 else:
-                    self.logger.warning(f"{module_id}: Phase 1 method {method_name} not found on instance")
+                    self.logger.warning(error_message(
+                        module_id="core.module_processor",
+                        error_type="PHASE1_METHOD_NOT_FOUND",
+                        details=f"Phase 1 method {method_name} not found on instance",
+                        location="_execute_phase1_methods()",
+                        context={"target_module_id": module_id, "method_name": method_name}
+                    ))
             
             self.logger.info(f"{module_id}: Executed {executed_count} Phase 1 initialization methods")
             return Result.success(data={'phase1_methods_executed': executed_count})
             
         except Exception as e:
-            self.logger.error(f"{module_id}: Error executing Phase 1 methods: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.module_processor",
+                error_type="PHASE1_EXECUTION_ERROR",
+                details=f"Error executing Phase 1 methods: {str(e)}",
+                location="_execute_phase1_methods()",
+                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+            ))
             return Result.error(
                 code="PHASE1_EXECUTION_FAILED",
                 message=f"Failed to execute Phase 1 methods for {module_id}",

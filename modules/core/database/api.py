@@ -45,7 +45,7 @@ from .utils import redact_connection_url, ensure_db_directory_exists
 from .module_settings import register_settings
 
 # Import error handler components for standardized error responses
-from core.error_utils import create_error_response, Result
+from core.error_utils import create_error_response, Result, error_message
 
 # Import database infrastructure
 from core.database import DatabaseBase
@@ -213,7 +213,7 @@ from .api_schemas import (
 @inject_dependencies("app_context")
 @auto_service_creation(service_class="DatabaseService")
 @initialization_sequence("setup_foundation", "create_crud_service", phase="phase1")
-@phase2_operations("complete_initialization", priority=5)
+@phase2_operations("initialize_phase2", priority=5)
 @register_api_endpoints(router_name="router")
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
@@ -270,7 +270,13 @@ class DatabaseModule(DataIntegrityModule):
         """Framework calls automatically in Phase 1 - Create CRUD service only."""
         # Service automatically created by @auto_service_creation - no manual creation needed!
         if not self.service_instance:
-            self.logger.error(f"{self.MODULE_ID}: service_instance should have been created by @auto_service_creation")
+            self.logger.error(error_message(
+                module_id=self.MODULE_ID,
+                error_type="AUTO_SERVICE_CREATION_FAILED",
+                details="service_instance should have been created by @auto_service_creation",
+                location="create_database_service()",
+                context={"service_instance": None}
+            ))
             raise RuntimeError("Auto service creation failed - service_instance not available")
         
         # Mark database service as initialized (databases created by bootstrap)
@@ -287,7 +293,7 @@ class DatabaseModule(DataIntegrityModule):
         self.logger.info(f"{self.MODULE_ID}: CRUD service created successfully")
         self.logger.info(f"{self.MODULE_ID}: Phase 1 initialization complete")
     
-    async def complete_initialization(self):
+    async def initialize_phase2(self):
         """Framework calls automatically in Phase 2 - Complete database session setup."""
         self.logger.info(f"{self.MODULE_ID}: Phase 2 - Completing initialization")
         
@@ -319,20 +325,37 @@ class DatabaseModule(DataIntegrityModule):
                     self.app_context.db_sync_engine = db_info["sync_engine"]
                     self.logger.info(f"{self.MODULE_ID}: Framework database session connected and set up in Phase 2")
                 else:
-                    self.logger.error(f"{self.MODULE_ID}: Failed to connect to framework database in Phase 2")
+                    self.logger.error(error_message(
+                        module_id=self.MODULE_ID,
+                        error_type="FRAMEWORK_DATABASE_CONNECTION_FAILED",
+                        details="Failed to connect to framework database in Phase 2",
+                        location="initialize_phase2()",
+                        context={"db_info": None}
+                    ))
                     return False
                     
             except Exception as e:
-                self.logger.error(f"{self.MODULE_ID}: Error setting up framework session: {str(e)}")
                 import traceback
-                self.logger.error(traceback.format_exc())
+                self.logger.error(error_message(
+                    module_id=self.MODULE_ID,
+                    error_type="FRAMEWORK_SESSION_SETUP_ERROR",
+                    details=f"Error setting up framework session: {str(e)}",
+                    location="initialize_phase2()",
+                    context={"error": str(e), "traceback": traceback.format_exc()}
+                ))
                 return False
                 
         # Verify framework database session is available
         if hasattr(self.app_context, 'db_session') and self.app_context.db_session:
             self.logger.info(f"{self.MODULE_ID}: Framework database session successfully initialized")
         else:
-            self.logger.error(f"{self.MODULE_ID}: Framework database session still not available after Phase 2 setup")
+            self.logger.error(error_message(
+                module_id=self.MODULE_ID,
+                error_type="FRAMEWORK_SESSION_UNAVAILABLE",
+                details="Framework database session still not available after Phase 2 setup",
+                location="initialize_phase2()",
+                context={"has_db_session": hasattr(self.app_context, 'db_session')}
+            ))
             return False
         
         # CRITICAL: Register other databases that bootstrap ACTUALLY created (not just imported)
@@ -396,7 +419,13 @@ class DatabaseModule(DataIntegrityModule):
             return True
             
         except Exception as e:
-            self.logger.error(f"{self.MODULE_ID} health check failed: {str(e)}")
+            self.logger.error(error_message(
+                module_id=self.MODULE_ID,
+                error_type="HEALTH_CHECK_FAILED",
+                details=f"Health check failed: {str(e)}",
+                location="health_check()",
+                context={"error": str(e)}
+            ))
             return False
     
     async def cleanup_resources(self):

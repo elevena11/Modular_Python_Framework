@@ -106,4 +106,14 @@ Modular_Python_Framework/
 
 ## Documentation
 
-See `CLAUDE.md` for comprehensive framework documentation and development guidelines.
+### Core Framework Documentation
+- **[Getting Started](docs/core/module-development-guide.md)** - Complete guide to creating modules
+- **[Architecture](docs/core/architecture.md)** - Framework design and patterns
+- **[Decorators](docs/core/decorators.md)** - Service registration and decorator patterns
+- **[Error Handling](docs/core/error-handling.md)** - Result pattern and structured logging
+- **[Database](docs/core/database.md)** - Database architecture and integration
+
+### Developer Resources
+- **[docs/](docs/)** - Complete documentation index
+- **[CLAUDE.md](CLAUDE.md)** - Detailed framework instructions for Claude Code
+- **[API Documentation](http://localhost:8000/docs)** - Live API docs when running

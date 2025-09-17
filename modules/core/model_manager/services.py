@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from typing import Dict, Any, Optional, List, Union
-from core.error_utils import Result
+from core.error_utils import Result, error_message
 
 # Import modular components
 from .workers import WorkerPool, WorkerTask, WorkerResult
@@ -93,7 +93,13 @@ class ModelManagerService:
             return Result.success(data={"initialized": True})
             
         except Exception as e:
-            self.logger.error(f"{MODULE_ID}: Service initialization failed: {e}")
+            self.logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="SERVICE_INITIALIZATION_FAILED",
+                details=f"Service initialization failed: {e}",
+                location="ModelManagerService.initialize()",
+                context={"error": str(e)}
+            ))
             return Result.error(
                 code="SERVICE_INIT_FAILED",
                 message="Failed to initialize model manager service",

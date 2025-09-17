@@ -869,7 +869,7 @@ def initialization_sequence(*method_names: str, phase: str = "phase1"):
     
     return decorator
 
-def phase2_operations(*method_names: str, dependencies: List[str] = None, priority: int = 150):
+def phase2_operations(*method_names: str, dependencies: List[str] = None, priority: int = 100):
     """
     Phase 2 operations automation decorator.
     

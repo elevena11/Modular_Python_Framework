@@ -133,7 +133,7 @@ logger = get_framework_logger(MODULE_ID)
     )
 ], priority=5)  # High priority - needed for Phase 1 registrations
 @require_services(["core.database.service", "core.database.crud_service"])
-@phase2_operations("initialize_with_dependencies", priority=200)
+@phase2_operations("initialize_phase2", priority=10)
 @auto_service_creation(service_class="SettingsService")
 @register_api_endpoints(router_name="router")
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
@@ -160,7 +160,7 @@ class SettingsModule(DataIntegrityModule):
         
         logger.info(f"{self.MODULE_ID} created with FULL decorator system")
     
-    async def initialize_with_dependencies(self):
+    async def initialize_phase2(self):
         """Phase 2: Initialize with guaranteed service access."""
         logger.info(f"{self.MODULE_ID}: Phase 2 - Initializing with dependencies")
         
@@ -195,7 +195,7 @@ class SettingsModule(DataIntegrityModule):
                 module_id=self.MODULE_ID,
                 error_type="PHASE2_INIT_ERROR",
                 details=f"Phase 2 initialization failed: {str(e)}",
-                location="initialize_with_dependencies()"
+                location="initialize_phase2()"
             ))
             return False
     

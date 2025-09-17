@@ -11,6 +11,7 @@ import random
 import asyncio
 from typing import Optional, Any, Dict, Callable, Awaitable
 from sqlalchemy.exc import OperationalError
+from core.error_utils import error_message
 
 def redact_connection_url(url):
     """
@@ -139,7 +140,13 @@ async def execute_with_retry(coro, max_retries=5, base_delay=0.1, max_delay=2.0)
             if "database is locked" in str(e).lower():
                 attempts += 1
                 if attempts > max_retries:
-                    logger.error(f"Max retries exceeded ({max_retries}) for database operation")
+                    logger.error(error_message(
+                        module_id="core.database.utils",
+                        error_type="DATABASE_RETRY_EXHAUSTED",
+                        details=f"Max retries exceeded ({max_retries}) for database operation",
+                        location="execute_with_retry()",
+                        context={"max_retries": max_retries, "attempts": attempts}
+                    ))
                     raise
                 
                 # Calculate exponential backoff with jitter

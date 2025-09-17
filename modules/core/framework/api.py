@@ -18,6 +18,7 @@ from core.decorators import (
     ServiceExample,
     register_api_endpoints,
     enforce_data_integrity,
+    require_services,
     module_health_check,
     graceful_shutdown,
     force_shutdown,
@@ -72,9 +73,10 @@ from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, Framework
     )
 ], priority=100)
 @inject_dependencies("app_context")
+@require_services(["core.settings.service"])
 @auto_service_creation(service_class="FrameworkService")
 @initialization_sequence("setup_infrastructure", "create_service", "register_settings", phase="phase1")
-@phase2_operations("initialize_service", dependencies=["core.settings.service"], priority=100)
+@phase2_operations("initialize_phase2", dependencies=["core.settings.service"], priority=30)
 @register_api_endpoints(router_name="router")
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
@@ -145,40 +147,43 @@ class FrameworkModule(DataIntegrityModule):
         
         self.logger.info(f"{self.MODULE_ID}: Phase 1 complete")
     
-    async def initialize_service(self):
+    async def initialize_phase2(self):
         """Framework calls automatically in Phase 2 - Initialize service with typed Pydantic settings."""
         self.logger.info(f"{self.MODULE_ID}: Phase 2 - Initializing service with typed settings")
         
         try:
+            # Services guaranteed available via @require_services decorator
+            settings_service = self.get_required_service("core.settings.service")
+
+            # Initialize service with dependencies
             if self.service_instance:
-                # Get settings service
-                settings_service = self.app_context.get_service("core.settings.service")
-                
-                if settings_service:
-                    # Get fully validated Pydantic settings
-                    result = await settings_service.get_typed_settings(
-                        module_id=self.MODULE_ID,
-                        model_class=FrameworkSettings
-                    )
-                    
-                    if result.success:
-                        typed_settings = result.data  # FrameworkSettings instance
-                        
-                        # Initialize service with type-safe settings
-                        if hasattr(self.service_instance, 'initialize'):
-                            await self.service_instance.initialize(settings=typed_settings)
-                            self.logger.info(f"{self.MODULE_ID}: Service initialized with typed Pydantic settings")
-                        else:
-                            self.logger.warning(f"{self.MODULE_ID}: Service has no initialize method")
+                # Get fully validated Pydantic settings
+                result = await settings_service.get_typed_settings(
+                    module_id=self.MODULE_ID,
+                    model_class=FrameworkSettings
+                )
+
+                if result.success:
+                    typed_settings = result.data  # FrameworkSettings instance
+
+                    # Initialize service with type-safe settings
+                    if hasattr(self.service_instance, 'initialize'):
+                        await self.service_instance.initialize(settings=typed_settings)
+                        self.logger.info(f"{self.MODULE_ID}: Service initialized with typed Pydantic settings")
                     else:
-                        self.logger.error(f"{self.MODULE_ID}: Failed to get typed settings: {result.message}")
+                        self.logger.warning(f"{self.MODULE_ID}: Service has no initialize method")
                 else:
-                    self.logger.error(f"{self.MODULE_ID}: Settings service not available in Phase 2")
+                    self.logger.error(f"{self.MODULE_ID}: Failed to get typed settings: {result.message}")
             else:
                 self.logger.error(f"{self.MODULE_ID}: Service not created in Phase 1")
                 
         except Exception as e:
-            self.logger.error(f"{self.MODULE_ID}: Exception initializing service: {str(e)}")
+            self.logger.error(error_message(
+                module_id=self.MODULE_ID,
+                error_type="PHASE2_INIT_ERROR",
+                details=f"Phase 2 initialization failed: {str(e)}",
+                location="initialize_phase2()"
+            ))
         
         self.logger.info(f"{self.MODULE_ID}: Phase 2 initialization complete")
     

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.exc import OperationalError
 from typing import Dict, List, Any, Callable, Awaitable, Optional, Union
+from core.error_utils import error_message
 
 class AppContext:
     """Application context shared with all modules."""
@@ -90,7 +91,13 @@ class AppContext:
                     if "database_url" in db_config and db_config["database_url"]:
                         return db_config["database_url"]
         except Exception as e:
-            self.logger.error(f"Error loading database URL from config: {str(e)}")
+            self.logger.error(error_message(
+                module_id="core.app_context",
+                error_type="DATABASE_URL_LOAD_FAILED",
+                details=f"Error loading database URL from config: {str(e)}",
+                location="initialize()",
+                context={"exception_type": type(e).__name__}
+            ))
         
         # Default SQLite path if config loading fails - directory for all databases
         # Build absolute directory path (no filename needed)
@@ -159,14 +166,26 @@ class AppContext:
                 if "database is locked" in str(e).lower():
                     attempts += 1
                     if attempts > max_retries:
-                        self.logger.error(f"Max retries exceeded ({max_retries}) for database operation")
+                        self.logger.error(error_message(
+                            module_id="core.app_context",
+                            error_type="DATABASE_MAX_RETRIES_EXCEEDED",
+                            details=f"Max retries exceeded ({max_retries}) for database operation",
+                            location="with_retry()",
+                            context={"max_retries": max_retries, "attempts": attempts}
+                        ))
                         raise
                     
                     # Calculate exponential backoff with jitter
                     delay = min(delay_base * (2 ** (attempts - 1)) * (0.5 + random.random()), 
                                self.retry_delay_max)
                     
-                    self.logger.warning(f"Database locked, retrying in {delay:.2f}s (attempt {attempts}/{max_retries})")
+                    self.logger.warning(error_message(
+                        module_id="core.app_context",
+                        error_type="DATABASE_LOCKED_RETRY",
+                        details=f"Database locked, retrying in {delay:.2f}s (attempt {attempts}/{max_retries})",
+                        location="with_retry()",
+                        context={"delay": delay, "attempts": attempts, "max_retries": max_retries}
+                    ))
                     await asyncio.sleep(delay)
                     last_error = e
                 else:
@@ -174,7 +193,13 @@ class AppContext:
                     raise
             except Exception as e:
                 # Re-raise other exceptions immediately
-                self.logger.error(f"Error executing database operation: {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="DATABASE_OPERATION_ERROR",
+                    details=f"Error executing database operation: {str(e)}",
+                    location="with_retry()",
+                    context={"exception_type": type(e).__name__}
+                ))
                 raise
         
         # We shouldn't get here, but just in case
@@ -228,7 +253,13 @@ class AppContext:
     def get_service(self, name):
         """Get a registered service by name."""
         if name not in self.services:
-            self.logger.warning(f"Service '{name}' not found")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SERVICE_NOT_FOUND",
+                details=f"Service '{name}' not found",
+                location="get_service()",
+                context={"service_name": name, "available_services": list(self.services.keys())}
+            ))
             return None
         return self.services[name]
     
@@ -423,10 +454,22 @@ class AppContext:
                     version
                 )
             except Exception as e:
-                self.logger.error(f"Error registering settings for {module_id}: {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SETTINGS_REGISTRATION_ERROR",
+                    details=f"Error registering settings for {module_id}: {str(e)}",
+                    location="register_pydantic_model()",
+                    context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                ))
                 return False
         else:
-            self.logger.warning(f"Cannot register settings for {module_id} - settings service not available")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_REGISTER",
+                details=f"Cannot register settings for {module_id} - settings service not available",
+                location="register_pydantic_model()",
+                context={"target_module_id": module_id}
+            ))
             
             # Add a post-init hook to register settings once the service is available
             if hasattr(self, 'post_init_hooks'):
@@ -470,7 +513,13 @@ class AppContext:
         if settings_service:
             return await settings_service.get_module_settings(module_id)
         else:
-            self.logger.warning(f"Cannot get settings for {module_id} - settings service not available")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_GET",
+                details=f"Cannot get settings for {module_id} - settings service not available",
+                location="get_settings()",
+                context={"target_module_id": module_id}
+            ))
             return {}
     
     async def update_module_setting(self, 
@@ -500,10 +549,22 @@ class AppContext:
                     module_id, key, value, use_client_config, validate
                 )
             except Exception as e:
-                self.logger.error(f"Error updating setting {key} for {module_id}: {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SETTING_UPDATE_ERROR",
+                    details=f"Error updating setting {key} for {module_id}: {str(e)}",
+                    location="update_setting()",
+                    context={"target_module_id": module_id, "setting_key": key, "exception_type": type(e).__name__}
+                ))
                 return False
         else:
-            self.logger.warning(f"Cannot update setting for {module_id} - settings service not available")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_UPDATE",
+                details=f"Cannot update setting for {module_id} - settings service not available",
+                location="update_setting()",
+                context={"target_module_id": module_id}
+            ))
             return False
     
     async def reset_module_setting(self, module_id: str, key: str) -> bool:
@@ -522,7 +583,13 @@ class AppContext:
         if settings_service:
             return await settings_service.reset_module_setting(module_id, key)
         else:
-            self.logger.warning(f"Cannot reset setting for {module_id} - settings service not available")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_RESET",
+                details=f"Cannot reset setting for {module_id} - settings service not available",
+                location="reset_setting()",
+                context={"target_module_id": module_id}
+            ))
             return False
     
     async def get_all_settings(self) -> Dict[str, Any]:
@@ -537,7 +604,13 @@ class AppContext:
         if settings_service:
             return await settings_service.get_all_settings()
         else:
-            self.logger.warning("Cannot get all settings - settings service not available")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_GET_ALL",
+                details="Cannot get all settings - settings service not available",
+                location="get_all_settings()",
+                context={}
+            ))
             return {}
     
     # UI Metadata methods - CONVERTED TO ASYNC
@@ -556,7 +629,13 @@ class AppContext:
         if settings_service and hasattr(settings_service, "get_ui_metadata"):
             return await settings_service.get_ui_metadata(module_id)
         else:
-            self.logger.warning("Cannot get UI metadata - settings service not available or outdated")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_UI_METADATA",
+                details="Cannot get UI metadata - settings service not available or outdated",
+                location="get_settings_ui_metadata()",
+                context={}
+            ))
             return {}
     
     # Migration methods - CONVERTED TO ASYNC
@@ -584,7 +663,13 @@ class AppContext:
                 module_id, from_version, to_version, migration_function
             )
         else:
-            self.logger.warning("Cannot register settings migration - settings service not available or outdated")
+            self.logger.warning(error_message(
+                module_id="core.app_context",
+                error_type="SETTINGS_SERVICE_UNAVAILABLE_MIGRATION",
+                details="Cannot register settings migration - settings service not available or outdated",
+                location="register_settings_migration()",
+                context={}
+            ))
             return False
     
     # Phase 4: Database integrity interface
@@ -637,7 +722,13 @@ class AppContext:
             try:
                 await handler()
             except Exception as e:
-                self.logger.error(f"Error in shutdown handler: {str(e)}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SHUTDOWN_HANDLER_ERROR",
+                    details=f"Error in shutdown handler: {str(e)}",
+                    location="shutdown()",
+                    context={"exception_type": type(e).__name__}
+                ))
                 
         self.logger.info("All shutdown handlers completed")
 
@@ -657,7 +748,13 @@ class AppContext:
                     self.logger.info(f"{module_name}: Force shutting down service")
                     service.force_shutdown()
                 except Exception as e:
-                    self.logger.error(f"Error during force shutdown of {name}: {str(e)}")
+                    self.logger.error(error_message(
+                        module_id="core.app_context",
+                        error_type="FORCE_SHUTDOWN_ERROR",
+                        details=f"Error during force shutdown of {name}: {str(e)}",
+                        location="force_shutdown()",
+                        context={"service_name": name, "exception_type": type(e).__name__}
+                    ))
         
         self.logger.info("App context force shutdown completed")
 
@@ -722,16 +819,40 @@ class AppContext:
                         # CENTRALIZED LOGGING - Success
                         self.logger.info(f"{module_id}: Service shutdown complete")
                     else:
-                        self.logger.warning(f"{module_id}: Shutdown method '{method_name}' not found on service")
+                        self.logger.warning(error_message(
+                            module_id="core.app_context",
+                            error_type="SHUTDOWN_METHOD_NOT_FOUND",
+                            details=f"Shutdown method '{method_name}' not found on service",
+                            location="_shutdown_service()",
+                            context={"target_module_id": module_id, "method_name": method_name}
+                        ))
                 else:
-                    self.logger.warning(f"{module_id}: Service not found for shutdown")
+                    self.logger.warning(error_message(
+                        module_id="core.app_context",
+                        error_type="SHUTDOWN_SERVICE_NOT_FOUND",
+                        details="Service not found for shutdown",
+                        location="_shutdown_service()",
+                        context={"target_module_id": module_id}
+                    ))
                     
             except asyncio.TimeoutError:
                 # CENTRALIZED LOGGING - Timeout
-                self.logger.error(f"{module_id}: Service shutdown timed out after {timeout}s")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SERVICE_SHUTDOWN_TIMEOUT",
+                    details=f"Service shutdown timed out after {timeout}s",
+                    location="_shutdown_service()",
+                    context={"target_module_id": module_id, "timeout": timeout}
+                ))
             except Exception as e:
                 # CENTRALIZED LOGGING - Error
-                self.logger.error(f"{module_id}: Service shutdown failed - {e}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SERVICE_SHUTDOWN_FAILED",
+                    details=f"Service shutdown failed: {str(e)}",
+                    location="_shutdown_service()",
+                    context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                ))
         
         self.logger.info("Decorator-based shutdown handlers completed")
 
@@ -777,12 +898,30 @@ class AppContext:
                         # CENTRALIZED LOGGING - Success
                         self.logger.info(f"{module_id}: Service force shutdown complete")
                     else:
-                        self.logger.warning(f"{module_id}: Force shutdown method '{method_name}' not found on service")
+                        self.logger.warning(error_message(
+                            module_id="core.app_context",
+                            error_type="FORCE_SHUTDOWN_METHOD_NOT_FOUND",
+                            details=f"Force shutdown method '{method_name}' not found on service",
+                            location="_force_shutdown_service()",
+                            context={"target_module_id": module_id, "method_name": method_name}
+                        ))
                 else:
-                    self.logger.warning(f"{module_id}: Service not found for force shutdown")
+                    self.logger.warning(error_message(
+                        module_id="core.app_context",
+                        error_type="FORCE_SHUTDOWN_SERVICE_NOT_FOUND",
+                        details="Service not found for force shutdown",
+                        location="_force_shutdown_service()",
+                        context={"target_module_id": module_id}
+                    ))
                     
             except Exception as e:
                 # CENTRALIZED LOGGING - Error
-                self.logger.error(f"{module_id}: Service force shutdown failed - {e}")
+                self.logger.error(error_message(
+                    module_id="core.app_context",
+                    error_type="SERVICE_FORCE_SHUTDOWN_FAILED",
+                    details=f"Service force shutdown failed: {str(e)}",
+                    location="_force_shutdown_service()",
+                    context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                ))
         
         self.logger.info("Decorator-based force shutdown completed")

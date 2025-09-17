@@ -1,31 +1,58 @@
 # Framework Documentation
 
-This directory contains clean, focused documentation for the Modular Python Framework.
+This directory contains all documentation for the Modular Python Framework.
 
-## Documentation Structure (Planned)
+## Organization
 
-- **Getting Started** - Quick setup and first module creation
-- **Architecture Guide** - Core framework concepts and patterns  
-- **Module Development** - How to create and structure modules
-- **API Reference** - Core services and utilities
-- **Best Practices** - Recommended patterns and conventions
-- **Migration Guide** - Upgrading from older versions
+### `docs/core/` - Core Framework Documentation
+Official framework documentation maintained by the core team:
 
-## Current Status
+- **[Architecture](core/architecture.md)** - Framework architecture and design principles
+- **[Module Development Guide](core/module-development-guide.md)** - Complete guide to creating modules
+- **[Decorators](core/decorators.md)** - Decorator patterns and service registration
+- **[Error Handling](core/error-handling.md)** - Result pattern and structured error logging
+- **[Database](core/database.md)** - Database architecture and integration patterns
+- **[Settings](core/settings.md)** - Pydantic settings system and configuration
+- **[Core Components](core/core-components.md)** - Framework core components overview
+- **[Development Tools](core/development-tools.md)** - Scaffolding and development utilities
 
-**🚧 Documentation Refresh In Progress**
+### `docs/` - Project Documentation
+User and project-specific documentation:
 
-The previous documentation has been moved to `work/docs_legacy_backup/` while we create fresh, streamlined documentation focused on framework essentials.
+- **[Framework Updates](core/framework-updates.md)** - Release notes and version history
+- **[Streamlit UI](core/streamlit-ui.md)** - UI components and interfaces
 
-## Legacy Documentation
+## Quick Start
 
-For reference to detailed technical documentation from development, see:
-- `work/docs_legacy_backup/` - Complete development documentation archive
+If you're new to the framework, start with:
 
-## Contributing to Documentation
+1. **[Architecture](core/architecture.md)** - Understand the framework design
+2. **[Module Development Guide](core/module-development-guide.md)** - Learn to create modules
+3. **[Decorators](core/decorators.md)** - Master the decorator patterns
 
-When creating new documentation:
-1. Focus on practical guidance over historical context
-2. Use clear examples and code samples
-3. Keep architecture explanations concise
-4. Prioritize user needs over implementation details
+## Development Workflow
+
+For framework development:
+
+1. **[Development Tools](core/development-tools.md)** - Use scaffolding tools
+2. **[Error Handling](core/error-handling.md)** - Implement proper error patterns
+3. **[Database](core/database.md)** - Integrate with the database system
+
+## Contributing Documentation
+
+- **Core framework docs** (`docs/core/`): Maintained by core team, requires review
+- **Project docs** (`docs/`): Add your own project-specific documentation here
+- **Module docs**: Each module can include its own README in its directory
+
+## Documentation Standards
+
+- Use **Markdown** format
+- Include **code examples** for all patterns
+- Add **"Quick Reference"** sections for complex topics
+- Keep examples **up-to-date** with current framework patterns
+- Use **consistent terminology** throughout
+
+---
+
+**Framework Version**: 1.0.3
+**Documentation Last Updated**: September 2025

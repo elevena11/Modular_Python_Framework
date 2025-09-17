@@ -33,21 +33,27 @@ async def create_user_endpoint():
 ```
 **Use for**: Converting Result errors to HTTP exceptions in API endpoints
 
-### 3. `error_message()` - Detailed Error Logging
+### 3. `error_message()` - Structured Error Logging
 ```python
 from core.error_utils import error_message
 
 def process_file(file_path: str):
     if not os.path.exists(file_path):
-        error_msg = error_message(
+        # error_message() writes to both JSONL logs AND returns formatted string
+        logger.error(error_message(
             module_id="file.processor",
-            error_type="FILE_NOT_FOUND", 
-            details=f"File {file_path} does not exist"
-        )
-        logger.error(error_msg)
-        return Result.error("FILE_NOT_FOUND", error_msg)
+            error_type="FILE_NOT_FOUND",
+            details=f"File {file_path} does not exist",
+            location="process_file()",
+            context={"file_path": file_path}
+        ))
+        return Result.error("FILE_NOT_FOUND", "File not found")
 ```
-**Use for**: Detailed error logging with automatic location detection and JSONL logging
+**Use for**:
+- Structured error tracking in JSONL format for analysis
+- Human-readable logs in app.log for debugging
+- Automatic location detection and error categorization
+- Critical infrastructure and service errors
 
 ---
 
@@ -484,6 +490,48 @@ async def get_user_summary(self, user_id: int) -> Result:
 ```
 
 ## Error Logging and Monitoring
+
+### Structured vs Simple Logging
+
+The framework supports two types of error logging:
+
+#### Structured Logging (Recommended for Critical Errors)
+```python
+from core.error_utils import error_message
+
+# Creates JSONL entry + app.log entry
+logger.error(error_message(
+    module_id="core.database",
+    error_type="CONNECTION_FAILED",
+    details="Database connection failed during initialization",
+    location="initialize_phase2()",
+    context={"database_url": "sqlite:///data/framework.db", "attempt": 3}
+))
+```
+
+**Output:**
+- **JSONL file**: `data/error_logs/YYYYMMDD-error.jsonl` (for error_handler analysis)
+- **App log**: Human-readable formatted message in `app.log`
+
+#### Simple Logging (For Non-Critical Errors)
+```python
+# Only goes to app.log - no structured tracking
+logger.error("Simple error message")
+logger.warning("Non-critical warning")
+```
+
+**Use structured logging for:**
+- Database connection failures
+- Service initialization errors
+- External API failures
+- File system errors
+- Critical business logic failures
+
+**Use simple logging for:**
+- Debug information
+- Non-critical warnings
+- Performance metrics
+- Development-only messages
 
 ### Structured Error Logging
 

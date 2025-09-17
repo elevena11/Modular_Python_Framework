@@ -1,6 +1,8 @@
 # Framework Updates
 
-The Modular Python Framework includes an automated update system that allows projects to easily update their core framework while preserving application-specific modules and data.
+The Modular Python Framework includes an automated update system (`tools/update_core.py`) that allows existing projects to easily update their core framework while preserving application-specific modules and data.
+
+**Important**: This update system is for upgrading **existing** framework installations. For new projects, always download the latest release ZIP from GitHub Releases instead of using git clone.
 
 ## Quick Start
 
@@ -100,23 +102,29 @@ To rollback after an update:
 
 When creating a new project from the framework:
 
-1. **Copy framework files** to your project directory
-2. **Create `.framework_version`** file with current version
-3. **Install dependencies**: `pip install -r requirements.txt`
-4. **Test update system**: `python tools/update_core.py --check-only`
+1. **Download latest release** from GitHub Releases (NOT git clone)
+2. **Extract framework** to your project directory
+3. **Install dependencies**: `python install_dependencies.py`
+4. **Initialize database**: `python setup_db.py`
+5. **Test update system**: `python tools/update_core.py --check-only`
 
 ## Example Workflow
 
 ```bash
 # Starting a new project
-git clone https://github.com/elevena11/Modular_Python_Framework.git MyProject
+# 1. Download Modular_Python_Framework-vX.X.X.zip from GitHub Releases
+# 2. Extract to your project directory
 cd MyProject
 
-# Set up for your project
+# Set up framework
+python install_dependencies.py
+python setup_db.py
+
+# Create your application modules
 python tools/scaffold_module.py --name my_app --type standard
 
 # Later, check for framework updates
-python tools/update_core.py
+python update_core.py
 # Output: "New framework version available v1.0.0 → v1.1.0"
 # Follow prompts to update
 
@@ -143,7 +151,7 @@ python app.py
 ## Advanced Usage
 
 ### Custom Repository
-To update from a fork or custom repository, modify `tools/update_core.py`:
+To update from a fork or custom repository, modify `update_core.py`:
 
 ```python
 self.repo_owner = "your-github-username"
@@ -152,16 +160,17 @@ self.repo_name = "your-framework-fork"
 
 ### Offline Updates
 For air-gapped environments:
-1. Download release zip from GitHub
-2. Extract manually over framework files
-3. Update `.framework_version` manually
+1. Download latest release ZIP from GitHub Releases
+2. Extract framework files over existing installation
+3. Update `.framework_version` file manually
+4. Run `python install_dependencies.py` for any new dependencies
 
 ### Automated Updates
 For CI/CD pipelines:
 
 ```bash
 # Check and update in scripts
-python tools/update_core.py --force
+python update_core.py --force
 if [ $? -eq 0 ]; then
     echo "Framework updated successfully"
 else

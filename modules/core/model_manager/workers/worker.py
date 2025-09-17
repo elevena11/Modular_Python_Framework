@@ -13,6 +13,7 @@ from typing import Optional, Any, Dict
 # Import from parent module components
 from .states import WorkerState
 from .tasks import WorkerTask, WorkerResult
+from core.error_utils import error_message
 
 # Module identity for logging
 MODULE_ID = "core.model_manager"
@@ -60,7 +61,13 @@ class ModelWorker:
             self.logger.info(f"Worker {self.worker_id} started")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to start worker {self.worker_id}: {e}")
+            self.logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="WORKER_START_FAILED",
+                details=f"Failed to start worker {self.worker_id}: {e}",
+                location="ModelWorker.start()",
+                context={"worker_id": self.worker_id, "error": str(e)}
+            ))
             return False
     
     async def stop(self):
@@ -99,7 +106,13 @@ class ModelWorker:
             self.logger.debug(f"Task {task.task_id} submitted to worker {self.worker_id}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to submit task to worker {self.worker_id}: {e}")
+            self.logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="TASK_SUBMISSION_FAILED",
+                details=f"Failed to submit task to worker {self.worker_id}: {e}",
+                location="ModelWorker.submit_task()",
+                context={"worker_id": self.worker_id, "task_id": task.task_id, "error": str(e)}
+            ))
             return False
     
     async def _worker_loop(self):
@@ -141,7 +154,13 @@ class ModelWorker:
                 await self._check_model_timeout()
                 continue
             except Exception as e:
-                self.logger.error(f"Worker {self.worker_id} error in processing loop: {e}")
+                self.logger.error(error_message(
+                    module_id=MODULE_ID,
+                    error_type="WORKER_PROCESSING_ERROR",
+                    details=f"Worker {self.worker_id} error in processing loop: {e}",
+                    location="ModelWorker._worker_loop()",
+                    context={"worker_id": self.worker_id, "errors": self.errors, "error": str(e)}
+                ))
                 self.errors += 1
                 continue
         

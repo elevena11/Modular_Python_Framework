@@ -33,48 +33,67 @@ modules/standard/my_module/
 This is the main file that defines your module:
 
 ```python
-from core.decorators import *
+from core.decorators import (
+    register_service, register_api_endpoints, require_services,
+    phase2_operations, auto_service_creation, inject_dependencies
+)
 from core.module_base import DataIntegrityModule
 
 @inject_dependencies('app_context')
-@register_service(name="standard.my_module.service", methods=[])
+@register_service("standard.my_module.service", methods=[])
 @auto_service_creation(service_class="MyModuleService")
-@phase2_operations(methods=["initialize_service"], priority=150)
+@require_services(["core.settings.service", "core.database.service"])
+@phase2_operations("initialize_phase2", priority=100)
 @register_api_endpoints(router_name="router")
 class MyModuleAPI(DataIntegrityModule):
     MODULE_ID = "standard.my_module"
-    
+    MODULE_VERSION = "1.0.0"
+    MODULE_DESCRIPTION = "My application module"
+
     def __init__(self):
+        super().__init__()
         # app_context injected automatically by @inject_dependencies
-        pass
-    
-    async def initialize_service(self):
+
+    async def initialize_phase2(self):
         """Phase 2 initialization - access other services here"""
+        # Services guaranteed available via @require_services decorator
+        settings_service = self.get_required_service("core.settings.service")
+
         # Service is available as self.service_instance (created by @auto_service_creation)
-        result = await self.service_instance.initialize()
-        return result.success
+        if self.service_instance:
+            result = await self.service_instance.initialize()
+            return result.success
+        return False
 ```
 
 **Key decorators:**
 - `@inject_dependencies('app_context')` - Injects app_context into constructor
 - `@register_service()` - Registers service with the framework
 - `@auto_service_creation()` - Automatically creates service instance
-- `@phase2_operations()` - Defines Phase 2 initialization methods
+- `@require_services()` - Declares service dependencies for safe access
+- `@phase2_operations()` - Defines Phase 2 initialization (standardized to "initialize_phase2")
 - `@register_api_endpoints()` - Registers API routes with FastAPI
+
+**New standardized patterns:**
+- **Phase 2 method name**: Always use `initialize_phase2()` (not `initialize_service()`)
+- **Service access**: Use `self.get_required_service()` with `@require_services` decorator
+- **Priority system**: Lower numbers = earlier initialization (database=5, settings=10, app=100)
+- **Error logging**: Use `error_message()` for critical errors that need structured tracking
 
 ### 2. services.py - Business Logic
 
 Contains your module's main service class:
 
 ```python
-from core.error_utils import Result
+from core.error_utils import Result, error_message
 from core.decorators import service_method
+import logging
 
 class MyModuleService:
     def __init__(self, app_context):
         self.app_context = app_context
-        self.logger = self.app_context.get_logger("standard.my_module")
-    
+        self.logger = logging.getLogger("standard.my_module")
+
     async def initialize(self) -> Result:
         """Initialize the service"""
         try:
@@ -82,6 +101,14 @@ class MyModuleService:
             self.logger.info("MyModule service initialized")
             return Result.success(data={"initialized": True})
         except Exception as e:
+            # Use structured error logging for critical initialization errors
+            self.logger.error(error_message(
+                module_id="standard.my_module",
+                error_type="INITIALIZATION_FAILED",
+                details=f"Failed to initialize MyModule service: {str(e)}",
+                location="MyModuleService.initialize()",
+                context={"error": str(e)}
+            ))
             return Result.error(
                 code="INITIALIZATION_FAILED",
                 message="Failed to initialize MyModule service",

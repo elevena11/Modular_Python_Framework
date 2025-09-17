@@ -4,6 +4,7 @@ Quick fix for modules/core/database/module_settings.py
 
 import logging
 from typing import Dict, Any
+from core.error_utils import error_message
 
 logger = logging.getLogger("core.database.settings")
 
@@ -270,9 +271,14 @@ async def register_settings(app_context):
         return success
         
     except Exception as e:
-        logger.error(f"Error registering database module settings: {str(e)}")
         import traceback
-        logger.error(traceback.format_exc())
+        logger.error(error_message(
+            module_id="core.database.settings",
+            error_type="SETTINGS_REGISTRATION_ERROR",
+            details=f"Error registering database module settings: {str(e)}",
+            location="register_settings()",
+            context={"traceback": traceback.format_exc()}
+        ))
         return False
 
 def get_sqlite_pragmas(settings=None):

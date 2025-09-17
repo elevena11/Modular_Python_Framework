@@ -20,6 +20,7 @@ from collections import defaultdict
 from sqlalchemy import create_engine, MetaData
 from sqlalchemy.ext.declarative import declarative_base
 from core.paths import get_data_path
+from core.error_utils import error_message
 
 logger = logging.getLogger("core.bootstrap")
 
@@ -51,7 +52,13 @@ async def run_bootstrap_phase(app_context) -> bool:
         if discovered_databases:
             success = _create_databases_standalone(discovered_databases)
             if not success:
-                logger.error("Bootstrap: Database creation failed")
+                logger.error(error_message(
+                    module_id="core.bootstrap",
+                    error_type="BOOTSTRAP_DATABASE_CREATION_FAILED",
+                    details="Database creation failed during bootstrap phase",
+                    location="run_bootstrap_phase()",
+                    context={"discovered_databases": list(discovered_databases.keys()) if discovered_databases else []}
+                ))
                 return False
             logger.info(f"Bootstrap: Created {len(discovered_databases)} databases")
         else:
@@ -61,7 +68,13 @@ async def run_bootstrap_phase(app_context) -> bool:
         return True
         
     except Exception as e:
-        logger.error(f"Bootstrap failed: {str(e)}")
+        logger.error(error_message(
+            module_id="core.bootstrap",
+            error_type="BOOTSTRAP_PHASE_FAILED",
+            details=f"Bootstrap phase failed: {str(e)}",
+            location="run_bootstrap_phase()",
+            context={"exception_type": type(e).__name__}
+        ))
         return False
 
 
@@ -127,7 +140,13 @@ def _discover_databases_standalone():
                         logger.info(f"Bootstrap: Discovered database '{database_name}' from {module_path.name} with tables: {', '.join(table_matches)}")
             
             except Exception as e:
-                logger.warning(f"Bootstrap: Error scanning {db_models_file}: {e}")
+                logger.warning(error_message(
+                    module_id="core.bootstrap",
+                    error_type="BOOTSTRAP_SCAN_ERROR",
+                    details=f"Error scanning db_models file: {str(e)}",
+                    location="_discover_databases_standalone()",
+                    context={"file_path": str(db_models_file), "module_name": module_path.name}
+                ))
     
     return database_tables
 
@@ -165,7 +184,13 @@ def _create_databases_standalone(discovered_databases):
                 metadata = get_database_metadata(database_name)
                 
                 if len(metadata.tables) == 0:
-                    logger.warning(f"Bootstrap: No tables found for database {database_name}")
+                    logger.warning(error_message(
+                        module_id="core.bootstrap",
+                        error_type="BOOTSTRAP_NO_TABLES_FOUND",
+                        details=f"No tables found for database {database_name}",
+                        location="_create_databases_standalone()",
+                        context={"database_name": database_name, "metadata_table_count": len(metadata.tables)}
+                    ))
                     # Fall back to creating empty database
                     with engine.connect() as conn:
                         empty_metadata = MetaData()
@@ -177,7 +202,13 @@ def _create_databases_standalone(discovered_databases):
                     logger.info(f"Bootstrap: Created database {database_name} with {len(metadata.tables)} tables")
                 
             except Exception as schema_error:
-                logger.warning(f"Bootstrap: Could not import schema for {database_name}: {schema_error}")
+                logger.warning(error_message(
+                    module_id="core.bootstrap",
+                    error_type="BOOTSTRAP_SCHEMA_IMPORT_FAILED",
+                    details=f"Could not import schema for database: {str(schema_error)}",
+                    location="_create_databases_standalone()",
+                    context={"database_name": database_name, "error_type": type(schema_error).__name__}
+                ))
                 # Fall back to creating empty database
                 with engine.connect() as conn:
                     metadata = MetaData()
@@ -187,7 +218,13 @@ def _create_databases_standalone(discovered_databases):
         return True
         
     except Exception as e:
-        logger.error(f"Bootstrap: Database creation failed - {e}")
+        logger.error(error_message(
+            module_id="core.bootstrap",
+            error_type="BOOTSTRAP_STANDALONE_CREATION_FAILED",
+            details=f"Standalone database creation failed: {str(e)}",
+            location="_create_databases_standalone()",
+            context={"exception_type": type(e).__name__, "database_count": len(discovered_databases)}
+        ))
         return False
 
 
@@ -230,7 +267,19 @@ def _import_all_db_models():
                         logger.debug(f"Bootstrap: Imported models from {import_path}")
                         
                     except Exception as e:
-                        logger.warning(f"Bootstrap: Could not import {import_path}: {e}")
+                        logger.warning(error_message(
+                            module_id="core.bootstrap",
+                            error_type="BOOTSTRAP_MODEL_IMPORT_FAILED",
+                            details=f"Could not import db_models: {str(e)}",
+                            location="_import_all_db_models()",
+                            context={"import_path": import_path, "module_name": module_path.name}
+                        ))
                         
     except Exception as e:
-        logger.warning(f"Bootstrap: Error importing db_models: {e}")
+        logger.warning(error_message(
+            module_id="core.bootstrap",
+            error_type="BOOTSTRAP_MODELS_IMPORT_ERROR",
+            details=f"Error importing db_models files: {str(e)}",
+            location="_import_all_db_models()",
+            context={"exception_type": type(e).__name__}
+        ))
