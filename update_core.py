@@ -221,6 +221,11 @@ class FrameworkUpdater:
                 backup_target = backup_path / file_path
 
                 if local_path.is_dir():
+                    # Ensure parent directory exists
+                    backup_target.parent.mkdir(parents=True, exist_ok=True)
+                    # Remove target if it exists to avoid copytree conflicts
+                    if backup_target.exists():
+                        shutil.rmtree(backup_target)
                     shutil.copytree(local_path, backup_target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
                 else:
                     backup_target.parent.mkdir(parents=True, exist_ok=True)
@@ -274,8 +279,13 @@ class FrameworkUpdater:
             if local_path.exists():
                 print(f"   Backing up: {zip_item}")
                 backup_target = backup_path / zip_item
-                
+
                 if local_path.is_dir():
+                    # Ensure parent directory exists
+                    backup_target.parent.mkdir(parents=True, exist_ok=True)
+                    # Remove target if it exists to avoid copytree conflicts
+                    if backup_target.exists():
+                        shutil.rmtree(backup_target)
                     shutil.copytree(local_path, backup_target, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
                 else:
                     backup_target.parent.mkdir(parents=True, exist_ok=True)
