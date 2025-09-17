@@ -161,33 +161,59 @@ class FrameworkUpdater:
         response = input("Proceed with update? (y/N): ").strip().lower()
         return response in ['y', 'yes']
     
-    def detect_orphaned_files(self, new_manifest: Dict[str, Any]) -> List[str]:
-        """Detect files that exist locally but aren't in the new manifest."""
+    def detect_orphaned_files(self, new_manifest: Dict[str, Any]) -> tuple[List[str], List[str]]:
+        """Detect files that exist locally but aren't in the new manifest.
+
+        Returns:
+            tuple: (removable_files, preserve_files)
+                - removable_files: Old framework files that should be automatically removed
+                - preserve_files: Files that should be preserved (might be user content)
+        """
         if not new_manifest or "framework_files" not in new_manifest:
-            return []
-        
+            return [], []
+
         new_framework_files = set(new_manifest["framework_files"])
-        orphaned_files = []
-        
+        removable_files = []
+        preserve_files = []
+
+        # Known old framework files that can be safely removed
+        # These are files that were part of the framework but have been moved/removed
+        known_old_framework_patterns = [
+            "docs/architecture.md",
+            "docs/core-components.md",
+            "docs/database.md",
+            "docs/decorators.md",
+            "docs/development-tools.md",
+            "docs/error-handling.md",
+            "docs/framework-updates.md",
+            "docs/module-development-guide.md",
+            "docs/settings.md",
+            "docs/streamlit-ui.md"
+        ]
+
         # Check current framework files against new manifest
         current_manifest_file = self.project_root / "framework_manifest.json"
         if current_manifest_file.exists():
             try:
                 with open(current_manifest_file, 'r') as f:
                     current_manifest = json.load(f)
-                
+
                 current_framework_files = current_manifest.get("framework_files", [])
-                
+
                 for current_file in current_framework_files:
                     file_path = self.project_root / current_file
                     # File exists locally but not in new manifest = orphaned
                     if file_path.exists() and current_file not in new_framework_files:
-                        orphaned_files.append(current_file)
-                        
+                        # Check if it's a known old framework file that can be removed
+                        if current_file in known_old_framework_patterns:
+                            removable_files.append(current_file)
+                        else:
+                            preserve_files.append(current_file)
+
             except json.JSONDecodeError:
                 print("⚠️  Warning: Could not read current manifest, orphan detection skipped")
-        
-        return orphaned_files
+
+        return removable_files, preserve_files
 
     def backup_files_from_manifest(self, files_to_backup: List[str]) -> str:
         """Create backup of files that will be updated according to manifest."""
@@ -374,16 +400,31 @@ class FrameworkUpdater:
                         print(f"📋 New framework manifest found (v{new_manifest.get('version', 'unknown')})")
                         
                         # Detect orphaned files
-                        orphaned_files = self.detect_orphaned_files(new_manifest)
-                        if orphaned_files:
-                            print(f"⚠️  WARNING: {len(orphaned_files)} files will become orphaned:")
-                            for orphan in orphaned_files[:10]:  # Show first 10
+                        removable_files, preserve_files = self.detect_orphaned_files(new_manifest)
+
+                        # Handle removable old framework files
+                        if removable_files:
+                            print(f"🗑️  Removing {len(removable_files)} old framework files:")
+                            for old_file in removable_files:
+                                print(f"    - {old_file}")
+                                old_file_path = self.project_root / old_file
+                                if old_file_path.exists():
+                                    if old_file_path.is_dir():
+                                        shutil.rmtree(old_file_path)
+                                    else:
+                                        old_file_path.unlink()
+                                    print(f"    ✅ Removed: {old_file}")
+
+                        # Handle files that should be preserved
+                        if preserve_files:
+                            print(f"⚠️  WARNING: {len(preserve_files)} files will become orphaned:")
+                            for orphan in preserve_files[:10]:  # Show first 10
                                 print(f"    - {orphan}")
-                            if len(orphaned_files) > 10:
-                                print(f"    ... and {len(orphaned_files) - 10} more")
+                            if len(preserve_files) > 10:
+                                print(f"    ... and {len(preserve_files) - 10} more")
                             print("    These files are no longer part of the framework")
                             print("    They will remain but may cause conflicts")
-                            
+
                             # Ask user if they want to continue
                             continue_update = input("\nContinue with update despite orphaned files? (y/N): ").strip().lower()
                             if continue_update not in ['y', 'yes']:
