@@ -99,15 +99,13 @@ class ModuleManager:
                 module_id="core.module_manager",
                 error_type="MODULE_DISCOVERY_FAILED",
                 details=f"Failed to load {len(failed_modules)} modules: {sorted(failed_modules)}",
-                location="discover_modules()",
-                context={"failed_modules": failed_modules, "total_failed": len(failed_modules)}
+                location="discover_modules()"
             ))
             self.logger.error(error_message(
                 module_id="core.module_manager",
                 error_type="MODULE_DISCOVERY_GUIDANCE",
                 details="These modules have api.py files but failed during discovery - check for import errors, decorator issues, or class instantiation problems",
-                location="discover_modules()",
-                context={"failed_modules": failed_modules}
+                location="discover_modules()"
             ))
         else:
             self.logger.info(f"All {len(expected_modules)} expected modules discovered successfully")
@@ -129,8 +127,7 @@ class ModuleManager:
                     module_id="core.module_manager",
                     error_type="MODULE_IMPORT_FAILED",
                     details=f"Module import failed: {str(e)}",
-                    location="_try_load_module()",
-                    context={"import_path": import_path, "exception_type": type(e).__name__}
+                    location="_try_load_module()"
                 ))
                 # Log more detail for common issues
                 if "methods" in str(e) and "ServiceMethod" in str(e):
@@ -138,8 +135,7 @@ class ModuleManager:
                         module_id="core.module_manager",
                         error_type="MODULE_OLD_DECORATOR_PATTERN",
                         details="This module likely uses old @register_service pattern - missing 'methods' parameter",
-                        location="_try_load_module()",
-                        context={"import_path": import_path}
+                        location="_try_load_module()"
                     ))
                 return None
             
@@ -202,8 +198,7 @@ class ModuleManager:
                 module_id="core.module_manager",
                 error_type="MODULE_INFO_EXTRACTION_FAILED",
                 details=f"Module info extraction failed: {str(e)}",
-                location="_extract_module_info()",
-                context={"module_path": module_path, "exception_type": type(e).__name__}
+                location="_extract_module_info()"
             ))
             return None
     
@@ -222,8 +217,7 @@ class ModuleManager:
                         module_id="core.module_manager",
                         error_type="MODULE_PROCESSING_FAILED",
                         details=f"Module processing failed: {result.error}",
-                        location="process_phase1()",
-                        context={"target_module_id": module_info.id, "result_error": result.error}
+                        location="process_phase1()"
                     ))
                     continue
                 
@@ -254,8 +248,7 @@ class ModuleManager:
                     module_id="core.module_manager",
                     error_type="MODULE_PHASE1_FAILED",
                     details=f"Phase 1 processing failed: {str(e)}",
-                    location="process_phase1()",
-                    context={"target_module_id": module_info.id, "exception_type": type(e).__name__}
+                    location="process_phase1()"
                 ))
                 continue
         
@@ -292,8 +285,7 @@ class ModuleManager:
                     module_id="core.module_manager",
                     error_type="CIRCULAR_DEPENDENCY_DETECTED",
                     details="Circular dependency detected in modules",
-                    location="process_phase2()",
-                    context={"remaining_modules": [m.id for m in remaining], "dependency_count": len(remaining)}
+                    location="process_phase2()"
                 ))
                 break
         
@@ -321,8 +313,7 @@ class ModuleManager:
                 module_id="core.module_manager",
                 error_type="MODULE_PHASE2_FAILED",
                 details=f"Phase 2 processing failed: {str(e)}",
-                location="process_phase2()",
-                context={"target_module_id": module_info.id, "exception_type": type(e).__name__}
+                location="process_phase2()"
             ))
             return False
     

@@ -56,8 +56,7 @@ async def run_bootstrap_phase(app_context) -> bool:
                     module_id="core.bootstrap",
                     error_type="BOOTSTRAP_DATABASE_CREATION_FAILED",
                     details="Database creation failed during bootstrap phase",
-                    location="run_bootstrap_phase()",
-                    context={"discovered_databases": list(discovered_databases.keys()) if discovered_databases else []}
+                    location="run_bootstrap_phase()"
                 ))
                 return False
             logger.info(f"Bootstrap: Created {len(discovered_databases)} databases")
@@ -72,8 +71,7 @@ async def run_bootstrap_phase(app_context) -> bool:
             module_id="core.bootstrap",
             error_type="BOOTSTRAP_PHASE_FAILED",
             details=f"Bootstrap phase failed: {str(e)}",
-            location="run_bootstrap_phase()",
-            context={"exception_type": type(e).__name__}
+            location="run_bootstrap_phase()"
         ))
         return False
 
@@ -144,8 +142,7 @@ def _discover_databases_standalone():
                     module_id="core.bootstrap",
                     error_type="BOOTSTRAP_SCAN_ERROR",
                     details=f"Error scanning db_models file: {str(e)}",
-                    location="_discover_databases_standalone()",
-                    context={"file_path": str(db_models_file), "module_name": module_path.name}
+                    location="_discover_databases_standalone()"
                 ))
     
     return database_tables
@@ -188,8 +185,7 @@ def _create_databases_standalone(discovered_databases):
                         module_id="core.bootstrap",
                         error_type="BOOTSTRAP_NO_TABLES_FOUND",
                         details=f"No tables found for database {database_name}",
-                        location="_create_databases_standalone()",
-                        context={"database_name": database_name, "metadata_table_count": len(metadata.tables)}
+                        location="_create_databases_standalone()"
                     ))
                     # Fall back to creating empty database
                     with engine.connect() as conn:
@@ -206,8 +202,7 @@ def _create_databases_standalone(discovered_databases):
                     module_id="core.bootstrap",
                     error_type="BOOTSTRAP_SCHEMA_IMPORT_FAILED",
                     details=f"Could not import schema for database: {str(schema_error)}",
-                    location="_create_databases_standalone()",
-                    context={"database_name": database_name, "error_type": type(schema_error).__name__}
+                    location="_create_databases_standalone()"
                 ))
                 # Fall back to creating empty database
                 with engine.connect() as conn:
@@ -222,8 +217,7 @@ def _create_databases_standalone(discovered_databases):
             module_id="core.bootstrap",
             error_type="BOOTSTRAP_STANDALONE_CREATION_FAILED",
             details=f"Standalone database creation failed: {str(e)}",
-            location="_create_databases_standalone()",
-            context={"exception_type": type(e).__name__, "database_count": len(discovered_databases)}
+            location="_create_databases_standalone()"
         ))
         return False
 
@@ -271,8 +265,7 @@ def _import_all_db_models():
                             module_id="core.bootstrap",
                             error_type="BOOTSTRAP_MODEL_IMPORT_FAILED",
                             details=f"Could not import db_models: {str(e)}",
-                            location="_import_all_db_models()",
-                            context={"import_path": import_path, "module_name": module_path.name}
+                            location="_import_all_db_models()"
                         ))
                         
     except Exception as e:
@@ -280,6 +273,5 @@ def _import_all_db_models():
             module_id="core.bootstrap",
             error_type="BOOTSTRAP_MODELS_IMPORT_ERROR",
             details=f"Error importing db_models files: {str(e)}",
-            location="_import_all_db_models()",
-            context={"exception_type": type(e).__name__}
+            location="_import_all_db_models()"
         ))

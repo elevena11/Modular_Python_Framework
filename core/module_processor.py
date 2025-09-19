@@ -330,8 +330,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="ANTI_MOCK_PROTECTION_DISABLED",
                     details=f"Module {module_id} has anti-mock protection disabled",
-                    location="_validate_data_integrity_requirements()",
-                    context={"target_module_id": module_id}
+                    location="_validate_data_integrity_requirements()"
                 ))
             
             # Validate module class inherits from integrity base classes
@@ -340,8 +339,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="MODULE_MISSING_INTEGRITY_BASE",
                     details=f"Module {module_id} does not inherit from DataIntegrityModule. Consider migrating to base classes for automatic integrity validation.",
-                    location="_validate_data_integrity_requirements()",
-                    context={"target_module_id": module_id, "module_class": module_class.__name__}
+                    location="_validate_data_integrity_requirements()"
                 ))
             
             self.logger.debug(f"Module {module_id} data integrity requirements validated")
@@ -449,8 +447,7 @@ class ModuleProcessor:
                             module_id="core.module_processor",
                             error_type="SERVICE_REGISTRATION_NO_INSTANCE",
                             details=f"Module instance still not available for service '{service_name}' registration",
-                            location="_register_services()",
-                            context={"target_module_id": module_id, "service_name": service_name}
+                            location="_register_services()"
                         ))
                         continue
                     
@@ -503,8 +500,7 @@ class ModuleProcessor:
                             module_id="core.module_processor",
                             error_type="SERVICE_INSTANCE_NOT_FOUND",
                             details=f"Could not find or create service instance for '{service_name}'",
-                            location="_register_services()",
-                            context={"target_module_id": module_id, "service_name": service_name}
+                            location="_register_services()"
                         ))
                         
                 except Exception as e:
@@ -512,8 +508,7 @@ class ModuleProcessor:
                         module_id="core.module_processor",
                         error_type="SERVICE_REGISTRATION_ERROR",
                         details=f"Error registering service '{service_name}': {str(e)}",
-                        location="_register_services()",
-                        context={"target_module_id": module_id, "service_name": service_name, "exception_type": type(e).__name__}
+                        location="_register_services()"
                     ))
                     continue
             
@@ -551,8 +546,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="AUTO_SERVICE_NO_CLASS_SPECIFIED",
                     details="AUTO-SERVICE-CREATION - No service class specified",
-                    location="_create_auto_service()",
-                    context={"target_module_id": module_id}
+                    location="_create_auto_service()"
                 ))
                 return Result.success(data={'services_created': 0})
             
@@ -563,8 +557,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="AUTO_SERVICE_NO_MODULE_INSTANCE",
                     details="AUTO-SERVICE-CREATION - Module instance not available",
-                    location="_create_auto_service()",
-                    context={"target_module_id": module_id}
+                    location="_create_auto_service()"
                 ))
                 return Result.error(
                     code="MODULE_INSTANCE_NOT_AVAILABLE",
@@ -603,8 +596,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="AUTO_SERVICE_CREATION_FAILED",
                     details=f"AUTO-SERVICE-CREATION - Could not create service '{service_class_name}': {str(e)}",
-                    location="_create_auto_service()",
-                    context={"target_module_id": module_id, "service_class_name": service_class_name, "exception_type": type(e).__name__}
+                    location="_create_auto_service()"
                 ))
                 return Result.error(
                     code="SERVICE_CREATION_FAILED",
@@ -640,8 +632,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="AUTO_SERVICE_NO_CLASS_SPECIFIED",
                     details="AUTO-SERVICE-CREATION - No service class specified",
-                    location="_create_auto_service()",
-                    context={"target_module_id": module_id}
+                    location="_create_auto_service()"
                 ))
                 return Result.success(data={'services_created': 0})
             
@@ -699,8 +690,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="AUTO_SERVICE_CREATION_EXCEPTION",
                     details=f"AUTO-SERVICE-CREATION - Failed to create {service_class_name}: {str(e)}",
-                    location="_create_auto_service()",
-                    context={"target_module_id": module_id, "service_class_name": service_class_name, "exception_type": type(e).__name__}
+                    location="_create_auto_service()"
                 ))
                 return Result.error(
                     code="SERVICE_CREATION_FAILED",
@@ -713,8 +703,7 @@ class ModuleProcessor:
                 module_id="core.module_processor",
                 error_type="AUTO_SERVICE_UNEXPECTED_ERROR",
                 details=f"AUTO-SERVICE-CREATION - Unexpected error: {str(e)}",
-                location="_create_auto_service()",
-                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                location="_create_auto_service()"
             ))
             return Result.error(
                 code="AUTO_SERVICE_CREATION_FAILED",
@@ -761,8 +750,7 @@ class ModuleProcessor:
                     module_id="core.module_processor",
                     error_type="SETTINGS_V2_REGISTRATION_FAILED",
                     details=f"Settings V2 registration failed: {registration_result.message}",
-                    location="_process_settings_v2()",
-                    context={"target_module_id": module_id, "result_message": registration_result.message}
+                    location="_process_settings_v2()"
                 ))
                 return Result.error(
                     code="SETTINGS_REGISTRATION_FAILED",
@@ -775,8 +763,7 @@ class ModuleProcessor:
                 module_id="core.module_processor",
                 error_type="SETTINGS_V2_PROCESSING_ERROR",
                 details=f"Error processing Settings V2: {str(e)}",
-                location="_process_settings_v2()",
-                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                location="_process_settings_v2()"
             ))
             return Result.error(
                 code="SETTINGS_PROCESSING_ERROR",
@@ -1194,8 +1181,7 @@ centralized registration Benefits:
                     module_id="core.module_processor",
                     error_type="PHASE2_NO_MODULE_INSTANCE",
                     details="No module instance found for Phase 2 execution",
-                    location="_execute_phase2_methods()",
-                    context={"target_module_id": module_id}
+                    location="_execute_phase2_methods()"
                 ))
                 return False
             
@@ -1214,8 +1200,7 @@ centralized registration Benefits:
                         module_id="core.module_processor",
                         error_type="PHASE2_METHOD_NOT_FOUND",
                         details=f"Phase 2 method {method_name} not found",
-                        location="_execute_phase2_methods()",
-                        context={"target_module_id": module_id, "method_name": method_name}
+                        location="_execute_phase2_methods()"
                     ))
             
             return True
@@ -1225,8 +1210,7 @@ centralized registration Benefits:
                 module_id="core.module_processor",
                 error_type="PHASE2_EXECUTION_ERROR",
                 details=f"Error executing Phase 2 methods for {module_id}: {str(e)}",
-                location="_execute_phase2_methods()",
-                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                location="_execute_phase2_methods()"
             ))
             return False
     
@@ -1260,8 +1244,7 @@ centralized registration Benefits:
                 module_id="core.module_processor",
                 error_type="AUTO_SERVICE_REGISTRATION_ERROR",
                 details=f"Error registering auto-created services: {str(e)}",
-                location="_register_auto_created_services()",
-                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                location="_register_auto_created_services()"
             ))
             return 0
     
@@ -1301,8 +1284,7 @@ centralized registration Benefits:
                         module_id="core.module_processor",
                         error_type="PHASE1_METHOD_NOT_FOUND",
                         details=f"Phase 1 method {method_name} not found on instance",
-                        location="_execute_phase1_methods()",
-                        context={"target_module_id": module_id, "method_name": method_name}
+                        location="_execute_phase1_methods()"
                     ))
             
             self.logger.info(f"{module_id}: Executed {executed_count} Phase 1 initialization methods")
@@ -1313,8 +1295,7 @@ centralized registration Benefits:
                 module_id="core.module_processor",
                 error_type="PHASE1_EXECUTION_ERROR",
                 details=f"Error executing Phase 1 methods: {str(e)}",
-                location="_execute_phase1_methods()",
-                context={"target_module_id": module_id, "exception_type": type(e).__name__}
+                location="_execute_phase1_methods()"
             ))
             return Result.error(
                 code="PHASE1_EXECUTION_FAILED",
