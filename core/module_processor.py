@@ -834,11 +834,15 @@ class ModuleProcessor:
                     # Core modules: /api/v1/core/{module_name}
                     module_name = module_id.replace('core.', '')
                     prefix = f"/api/v1/core/{module_name}"
+                elif module_id.startswith('standard.'):
+                    # Standard modules: /api/v1/{module_name} (strip standard. prefix)
+                    module_name = module_id.replace('standard.', '')
+                    prefix = f"/api/v1/{module_name}"
                 else:
-                    # Standard modules: /api/v1/{module_name}
+                    # Extensions and other modules: /api/v1/{module_id}
                     prefix = f"/api/v1/{module_id}"
                 
-                self.logger.info(f"{module_id}: Centralized registration - API endpoints '{router_name}' at '{prefix}'")
+                self.logger.info(f"{module_id}: Centralized registration - API endpoints '{router_name}' at '{prefix}' (module: {module_id})")
                 
                 # Collect router information for main app registration
                 router_info = {
