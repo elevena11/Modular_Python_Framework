@@ -38,11 +38,12 @@ from core.decorators import (
 )
 from core.module_base import DataIntegrityModule
 
-# Import module components  
+# Import module components
 # Database models imported as needed - no circular dependencies
 from .services import DatabaseService
 from .utils import redact_connection_url, ensure_db_directory_exists
 from .module_settings import register_settings
+from .settings import DatabaseSettings
 
 # Import error handler components for standardized error responses
 from core.error_utils import create_error_response, Result, error_message
@@ -282,7 +283,14 @@ class DatabaseModule(DataIntegrityModule):
         # Mark database service as initialized (databases created by bootstrap)
         self.service_instance.initialized = True
         self.logger.info(f"{self.MODULE_ID}: Database service marked as initialized (databases handled by bootstrap)")
-        
+
+        # Register Pydantic settings model with framework (Phase 1)
+        try:
+            self.app_context.register_pydantic_model(self.MODULE_ID, DatabaseSettings)
+            self.logger.info(f"{self.MODULE_ID}: Pydantic settings model registered with framework")
+        except Exception as e:
+            self.logger.warning(f"{self.MODULE_ID}: Error registering Pydantic model: {e}")
+
         # Create CRUD service (automatically registered via @register_service decorator)
         from .crud import CRUDService
         self.crud_service = CRUDService(self.app_context)
