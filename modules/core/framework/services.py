@@ -137,6 +137,76 @@ class FrameworkService:
                 details={"error": str(e)}
             )
     
+    def get_active_modules(self) -> Result:
+        """
+        Get information about currently active/initialized modules from the module processor.
+
+        Returns:
+            Result: Success with active modules data or error
+        """
+        # Check initialization
+        if not self.initialized:
+            return Result.error(
+                code=f"{MODULE_ID}_SERVICE_NOT_INITIALIZED",
+                message=f"{MODULE_ID} service not initialized"
+            )
+
+        try:
+            # Access the module manager and processor through app_context
+            if hasattr(self.app_context, 'module_manager') and self.app_context.module_manager:
+                module_manager = self.app_context.module_manager
+                if hasattr(module_manager, 'processor') and module_manager.processor:
+                    processor = module_manager.processor
+
+                    # Get runtime information from the processor
+                    runtime_info = processor.get_all_runtime_info()
+
+                    # Convert processed_modules to a more user-friendly format
+                    active_modules = {}
+                    for module_id, module_data in processor.processed_modules.items():
+                        active_modules[module_id] = {
+                            "id": module_id,
+                            "name": module_id.replace('.', ' ').title(),
+                            "status": "active",  # All processed modules are active
+                            "version": module_data.get('module_version', '1.0.0'),
+                            "description": module_data.get('module_description', f"Active {module_id} module"),
+                            "initialization_time": module_data.get('initialization_time'),
+                            "services": list(module_data.get('runtime_info', {}).get('active_services', {}).keys()),
+                            "phase1_complete": len(module_data.get('initialization_sequences', {}).get('phase1', [])) > 0,
+                            "phase2_complete": 'phase2_operations' in module_data
+                        }
+
+                    return Result.success(data={
+                        "modules": active_modules,
+                        "total_modules": len(active_modules),
+                        "system_summary": runtime_info.get('system_summary', {}),
+                        "last_updated": runtime_info.get('system_summary', {}).get('last_updated')
+                    })
+                else:
+                    return Result.error(
+                        code=f"{MODULE_ID}_PROCESSOR_NOT_AVAILABLE",
+                        message="Module processor not available"
+                    )
+            else:
+                return Result.error(
+                    code=f"{MODULE_ID}_MODULE_MANAGER_NOT_AVAILABLE",
+                    message="Module manager not available"
+                )
+
+        except Exception as e:
+            self.logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="ACTIVE_MODULES_ERROR",
+                details=f"Error retrieving active modules: {str(e)}",
+                location="get_active_modules()"
+            ))
+
+            return Result.error(
+                code=f"{MODULE_ID}_ACTIVE_MODULES_ERROR",
+                message="Failed to retrieve active modules",
+                details={"error": str(e)}
+            )
+
     async def cleanup_resources(self):
         """
         Graceful resource cleanup - logging handled by decorator.

@@ -6,7 +6,7 @@ Entry point for the global core module using centralized registration system
 
 import logging
 from typing import Dict, Any, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from core.error_utils import error_message, create_error_response
 
 # Import complete decorator system for centralized registration
@@ -32,7 +32,7 @@ from core.module_base import DataIntegrityModule
 # Import module components
 from .services import FrameworkService
 from .settings import FrameworkSettings
-from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, FrameworkInfoResponse
+from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, FrameworkInfoResponse, ActiveModulesResponse
 
 # NEW DECORATOR-BASED MODULE CLASS (centralized registration)
 
@@ -268,6 +268,59 @@ async def get_session_info():
                 module_id="core.global",
                 code="INTERNAL_ERROR",
                 message="Failed to get session information"
+            )
+        )
+
+@router.get("/active-modules", response_model=ActiveModulesResponse)
+async def get_active_modules(request: Request):
+    """Get information about currently active/initialized modules."""
+    try:
+        # Get the framework service from app context
+        app_context = request.app.state.app_context
+        framework_service = app_context.get_service("core.framework.service")
+
+        if not framework_service:
+            raise HTTPException(
+                status_code=503,
+                detail=create_error_response(
+                    module_id=MODULE_ID,
+                    code="SERVICE_UNAVAILABLE",
+                    message="Framework service not available"
+                )
+            )
+
+        # Get active modules from the service
+        result = framework_service.get_active_modules()
+
+        if not result.success:
+            raise HTTPException(
+                status_code=500,
+                detail=create_error_response(
+                    module_id=MODULE_ID,
+                    code=result.error.get("code", "UNKNOWN_ERROR"),
+                    message=result.error.get("message", "Unknown error occurred"),
+                    details=result.error.get("details")
+                )
+            )
+
+        return result.data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(error_message(
+            module_id=MODULE_ID,
+            error_type="ACTIVE_MODULES_API_ERROR",
+            details=f"Error in active modules API: {str(e)}",
+            location="get_active_modules()"
+        ))
+
+        raise HTTPException(
+            status_code=500,
+            detail=create_error_response(
+                module_id=MODULE_ID,
+                code="INTERNAL_ERROR",
+                message="Failed to get active modules"
             )
         )
 

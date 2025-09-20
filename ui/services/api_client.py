@@ -67,47 +67,36 @@ class APIClient:
             return {"api_base_url": self.base_url}
     
     def get_modules(self):
-        """Get a list of all modules from the API."""
+        """Get a list of all active modules from the framework runtime API."""
         try:
-            # Use the settings endpoint to get module information
-            response = self.session.get(f"{self.base_url}/api/v1/core/settings/settings")
+            # Use the active modules endpoint to get actual running module information
+            response = self.session.get(f"{self.base_url}/api/v1/core/framework/active-modules")
             if response.status_code == 200:
                 data = response.json()
                 modules_data = data.get("modules", {})
-                
-                # Convert settings modules to module list format
+
+                # Convert active modules to module list format (already in proper format)
                 modules = []
                 for module_id, module_info in modules_data.items():
-                    # Create a description based on module type and settings
-                    settings_count = len(module_info.get("settings", {}))
-                    overrides_count = module_info.get("user_overrides_count", 0)
-                    
-                    # Generate description based on module type
-                    if module_id.startswith("core."):
-                        description = f"Core framework module with {settings_count} settings"
-                    elif module_id.startswith("standard."):
-                        description = f"Standard module with {settings_count} settings"
-                    else:
-                        description = f"Module with {settings_count} settings"
-                    
-                    if overrides_count > 0:
-                        description += f" ({overrides_count} user overrides)"
-                    
+                    # Use the active module information directly since it's more comprehensive
                     modules.append({
-                        "id": module_id,
-                        "name": module_id.replace('.', ' ').title(),
-                        "status": "active",
-                        "version": "1.0.0",
-                        "description": description,
-                        "settings_count": settings_count,
-                        "user_overrides": overrides_count
+                        "id": module_info.get("id", module_id),
+                        "name": module_info.get("name", module_id.replace('.', ' ').title()),
+                        "status": module_info.get("status", "active"),
+                        "version": module_info.get("version", "1.0.0"),
+                        "description": module_info.get("description", f"Active {module_id} module"),
+                        "services": module_info.get("services", []),
+                        "phase1_complete": module_info.get("phase1_complete", False),
+                        "phase2_complete": module_info.get("phase2_complete", False),
+                        "initialization_time": module_info.get("initialization_time")
                     })
-                
+
+                logger.info(f"Retrieved {len(modules)} active modules from framework runtime")
                 return modules
-            logger.warning(f"Failed to get modules: {response.status_code}")
+            logger.warning(f"Failed to get active modules: {response.status_code}")
             return []
         except Exception as e:
-            logger.error(f"Error getting modules: {str(e)}")
+            logger.error(f"Error getting active modules: {str(e)}")
             return []
     
     def submit_instruction(self, instruction):
