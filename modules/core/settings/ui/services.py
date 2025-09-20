@@ -16,7 +16,7 @@ class SettingsUIService:
     def get_system_status(base_url: str) -> Dict[str, Any]:
         """Get the settings system status."""
         try:
-            response = requests.get(f"{base_url}/api/v1/settings/status")
+            response = requests.get(f"{base_url}/api/v1/core/settings/status")
             if response.status_code == 200:
                 return response.json()
             else:
@@ -30,7 +30,7 @@ class SettingsUIService:
     def get_module_info(base_url: str) -> Dict[str, Any]:
         """Get module information."""
         try:
-            response = requests.get(f"{base_url}/api/v1/settings/info")
+            response = requests.get(f"{base_url}/api/v1/core/settings/info")
             if response.status_code == 200:
                 return response.json()
             else:
@@ -44,7 +44,7 @@ class SettingsUIService:
     def get_all_settings(base_url: str) -> Dict[str, Any]:
         """Get all settings for all modules."""
         try:
-            response = requests.get(f"{base_url}/api/v1/settings/settings")
+            response = requests.get(f"{base_url}/api/v1/core/settings/settings")
             if response.status_code == 200:
                 data = response.json()
                 # Transform the data structure to match what the UI expects
@@ -60,7 +60,7 @@ class SettingsUIService:
     def get_module_settings(base_url: str, module_id: str) -> Dict[str, Any]:
         """Get settings for a specific module."""
         try:
-            response = requests.get(f"{base_url}/api/v1/settings/settings/{module_id}")
+            response = requests.get(f"{base_url}/api/v1/core/settings/settings/{module_id}")
             if response.status_code == 200:
                 return response.json()
             else:
@@ -75,7 +75,7 @@ class SettingsUIService:
         """Set a user preference for a specific setting."""
         try:
             response = requests.put(
-                f"{base_url}/api/v1/settings/settings/{module_id}/{setting_key}",
+                f"{base_url}/api/v1/core/settings/settings/{module_id}/{setting_key}",
                 json={"value": value}
             )
             
@@ -94,7 +94,7 @@ class SettingsUIService:
     def clear_user_preference(base_url: str, module_id: str, setting_key: str) -> Dict[str, Any]:
         """Clear a user preference for a specific setting."""
         try:
-            response = requests.delete(f"{base_url}/api/v1/settings/settings/{module_id}/{setting_key}")
+            response = requests.delete(f"{base_url}/api/v1/core/settings/settings/{module_id}/{setting_key}")
             
             if response.status_code == 200:
                 return {"success": True, "message": "User preference cleared successfully"}

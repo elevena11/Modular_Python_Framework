@@ -66,7 +66,7 @@ def render_database_viewer(ui_context):
             return
     
     with col2:
-        if st.button("🔄 Refresh Databases", use_container_width=True):
+        if st.button("🔄 Refresh Databases", width='stretch'):
             st.rerun()
     
     if not st.session_state.db_selected_database:
@@ -100,7 +100,7 @@ def render_database_viewer(ui_context):
             return
     
     with col2:
-        if st.button("🔄 Refresh Tables", use_container_width=True):
+        if st.button("🔄 Refresh Tables", width='stretch'):
             st.rerun()
     
     if not st.session_state.db_selected_table:
@@ -135,7 +135,7 @@ def render_database_viewer(ui_context):
     
     with col3:
         st.write("")  # Spacing
-        apply_filter = st.button("Apply Filter", use_container_width=True)
+        apply_filter = st.button("Apply Filter", width='stretch')
     
     # Handle filter application
     if apply_filter or (filter_column != st.session_state.db_filter_column) or (filter_value != st.session_state.db_filter_value):
@@ -176,7 +176,7 @@ def render_database_viewer(ui_context):
         
         # Create DataFrame and display
         df = pd.DataFrame(display_data)
-        st.dataframe(df, use_container_width=True, height=400)
+        st.dataframe(df, width='stretch', height=400)
         
         # Pagination
         page_size = 50
@@ -231,7 +231,7 @@ def render_database_viewer(ui_context):
                     })
                 
                 schema_df = pd.DataFrame(schema_data)
-                st.dataframe(schema_df, use_container_width=True)
+                st.dataframe(schema_df, width='stretch')
             else:
                 st.info("No schema information available.")
         
@@ -264,7 +264,7 @@ def render_database_viewer(ui_context):
                                 st.success(f"Query executed successfully. Returned {query_result['row_count']} rows.")
                                 if query_result["rows"]:
                                     result_df = pd.DataFrame(query_result["rows"])
-                                    st.dataframe(result_df, use_container_width=True)
+                                    st.dataframe(result_df, width='stretch')
                                 else:
                                     st.info("Query returned no results.")
                             else:

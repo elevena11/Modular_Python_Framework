@@ -9,7 +9,9 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Any, Set
 
-from .constants import PROTECTED_ELEMENTS, DEFAULT_CONFIG_VERSION, DEFAULT_ELEMENT_ORDER
+# Configuration defaults (moved from constants.py)
+DEFAULT_CONFIG_VERSION = "1.0.0"
+DEFAULT_ELEMENT_ORDER = 100
 
 logger = logging.getLogger("ui.core.ui_config.config")
 
@@ -20,7 +22,7 @@ class UIConfig:
         """Initialize the UI configuration manager."""
         self.app_context = app_context
         self.config_file = os.path.join(app_context.config.get("data_dir", "./data"), "ui_elements_config.json")
-        self.protected_elements = PROTECTED_ELEMENTS
+        # No protected elements - all elements are configurable
         self.config = self._load_config()
         logger.info("UI Config initialized")
     
@@ -76,14 +78,10 @@ class UIConfig:
     
     def is_element_visible(self, element_id: str) -> bool:
         """Check if an element should be visible."""
-        # Protected elements are always visible
-        if element_id in self.protected_elements:
-            return True
-        
         # Check in configuration
         if element_id in self.config["ui_elements"]:
             return self.config["ui_elements"][element_id].get("visible", True)
-        
+
         # Default to visible for unknown elements
         return True
     
@@ -95,10 +93,6 @@ class UIConfig:
     
     def set_element_visibility(self, element_id: str, visible: bool) -> bool:
         """Set the visibility of an element."""
-        # Check if the element is protected
-        if element_id in self.protected_elements and not visible:
-            logger.warning(f"Cannot hide protected element: {element_id}")
-            return False
         
         # Create element config if doesn't exist
         if element_id not in self.config["ui_elements"]:

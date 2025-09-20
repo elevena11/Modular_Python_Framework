@@ -13,9 +13,8 @@ def render_config_panel(ui_context):
     st.header("🎛️ UI Configuration")
     
     st.markdown("""
-    Configure which UI elements are visible in the user interface. 
-    Protected elements are always enabled and not shown here.
-    
+    Configure which UI elements are visible in the user interface.
+
     **Note:** Changes take effect after restarting the application.
     """)
     
@@ -26,18 +25,8 @@ def render_config_panel(ui_context):
         st.error("UI Configuration service not available")
         return
     
-    # Get all registered elements
-    all_elements = ui_context.get_all_elements()
-    
-    # Filter out protected elements
-    try:
-        from ui.core.ui_config.constants import PROTECTED_ELEMENTS
-        configurable_elements = [e for e in all_elements if e.get("full_id") not in PROTECTED_ELEMENTS]
-        protected_elements_str = ", ".join([e.split(".")[-1] for e in PROTECTED_ELEMENTS])
-    except ImportError:
-        # If constants file doesn't exist, show all elements
-        configurable_elements = all_elements
-        protected_elements_str = "None defined"
+    # Get all registered elements - no protection system
+    configurable_elements = ui_context.get_all_elements()
     
     if not configurable_elements:
         st.info("No configurable elements found.")
@@ -154,20 +143,16 @@ def render_config_panel(ui_context):
     
     # Help section
     with st.expander("ℹ️ Help & Information"):
-        st.markdown(f"""
+        st.markdown("""
         **How to use:**
         1. Use the toggles above to show/hide UI elements
         2. Click "Save Changes" to persist your configuration
         3. Restart the application to see the changes take effect
-        
-        **Protected elements:** {protected_elements_str}
-        
-        Protected elements are always enabled and cannot be configured.
-        
+
         **Module Information:**
         - Each module can contribute multiple UI elements (tabs, buttons, etc.)
         - Disabling an element will hide it from the interface
-        - Some elements may be dependencies for others
+        - The UI Configuration tab itself cannot be hidden to ensure you can always restore elements
         """)
         
         # Show current configuration summary
@@ -186,4 +171,4 @@ def render_config_panel(ui_context):
         if status_data:
             import pandas as pd
             df = pd.DataFrame(status_data)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width='stretch')

@@ -17,6 +17,7 @@ from core.decorators import (
     ServiceReturn,
     ServiceExample,
     auto_service_creation,
+    initialization_sequence,
     phase2_operations,
     enforce_data_integrity,
     graceful_shutdown,
@@ -133,6 +134,7 @@ logger = get_framework_logger(MODULE_ID)
     )
 ], priority=5)  # High priority - needed for Phase 1 registrations
 @require_services(["core.database.service", "core.database.crud_service"])
+@initialization_sequence("register_settings_model", phase="phase1")
 @phase2_operations("initialize_phase2", priority=10)
 @auto_service_creation(service_class="SettingsService")
 @register_api_endpoints(router_name="router")
@@ -159,7 +161,13 @@ class SettingsModule(DataIntegrityModule):
         self.initialized = False
         
         logger.info(f"{self.MODULE_ID} created with FULL decorator system")
-    
+
+    def register_settings_model(self):
+        """Phase 1: Register settings model with framework (for consistency with decorator system)."""
+        # Note: The actual registration happens in the service constructor during auto-service creation
+        # This method exists to provide explicit Phase 1 tracking for the decorator system
+        logger.info(f"{self.MODULE_ID}: Phase 1 - Settings model registration (handled by service constructor)")
+
     async def initialize_phase2(self):
         """Phase 2: Initialize with guaranteed service access."""
         logger.info(f"{self.MODULE_ID}: Phase 2 - Initializing with dependencies")

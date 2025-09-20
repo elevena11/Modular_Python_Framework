@@ -55,7 +55,7 @@ def render_all_module_settings(base_url: str):
     
     # Load all settings from API
     try:
-        all_settings_response = requests.get(f"{base_url}/api/v1/settings/settings")
+        all_settings_response = requests.get(f"{base_url}/api/v1/core/settings/settings")
         if all_settings_response.status_code != 200:
             st.error(f"Failed to load settings: {all_settings_response.status_code}")
             return
