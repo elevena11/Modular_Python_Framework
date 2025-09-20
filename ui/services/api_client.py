@@ -70,7 +70,7 @@ class APIClient:
         """Get a list of all modules from the API."""
         try:
             # Use the settings endpoint to get module information
-            response = self.session.get(f"{self.base_url}/api/v1/settings/settings")
+            response = self.session.get(f"{self.base_url}/api/v1/core/settings/settings")
             if response.status_code == 200:
                 data = response.json()
                 modules_data = data.get("modules", {})
