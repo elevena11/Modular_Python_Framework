@@ -210,21 +210,58 @@ class DatabaseService:
     @staticmethod
     def execute_custom_query(query, params=None, is_write=False):
         """
-        Execute a custom SQL query (disabled for security).
-        
+        Execute a custom SQL query (read-only for security).
+
         Args:
             query: SQL query string
             params: Query parameters
             is_write: Whether the query modifies data
-            
+
         Returns:
             Query results or execution status
         """
         try:
-            # Custom query execution is disabled for security reasons
-            logger.warning("Custom query execution is disabled for security reasons")
-            return {"success": False, "error": "Custom query execution is disabled for security reasons in the UI"}
-            
+            # Block write queries for security
+            if is_write:
+                logger.warning("Write queries are disabled for security reasons")
+                return {"success": False, "error": "Write operations (INSERT, UPDATE, DELETE) are disabled for security reasons in the UI"}
+
+            # Block potentially dangerous commands
+            query_upper = query.upper().strip()
+            dangerous_commands = ['INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER', 'PRAGMA']
+            for cmd in dangerous_commands:
+                if query_upper.startswith(cmd):
+                    return {"success": False, "error": f"{cmd} operations are not allowed for security reasons"}
+
+            # Only allow SELECT queries from a specific database (use first available)
+            databases = DatabaseService.get_databases()
+            if not databases:
+                return {"success": False, "error": "No databases available"}
+
+            # Default to framework database for queries
+            db_path = DatabaseService.get_database_path(databases[0])
+
+            with sqlite3.connect(db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                if params:
+                    cursor.execute(query, params)
+                else:
+                    cursor.execute(query)
+
+                rows = cursor.fetchall()
+
+                # Convert to list of dictionaries
+                data = [dict(row) for row in rows]
+
+                return {
+                    "success": True,
+                    "rows": data,
+                    "row_count": len(data),
+                    "message": f"Query executed successfully. Returned {len(data)} rows."
+                }
+
         except Exception as e:
             logger.error(f"Error executing custom query: {str(e)}")
             import traceback

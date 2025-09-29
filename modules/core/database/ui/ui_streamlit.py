@@ -162,7 +162,11 @@ def render_database_viewer(ui_context):
         
         # Display table data
         st.subheader(f"Table Data - {st.session_state.db_selected_table}")
-        
+
+        # Special handling for user_preferences table in settings database
+        if st.session_state.db_selected_database == "settings" and st.session_state.db_selected_table == "user_preferences":
+            st.info("💡 This table contains user preference overrides for framework settings. The 'value' column shows what values override the defaults.")
+
         # Prepare data for display
         display_data = []
         for i, row in enumerate(data):
@@ -170,6 +174,9 @@ def render_database_viewer(ui_context):
             for key, value in row.items():
                 if isinstance(value, (dict, list)):
                     display_row[key] = "[Complex Data]"
+                elif isinstance(value, str) and len(value) > 100:
+                    # Truncate very long text values for better display
+                    display_row[key] = value[:100] + "..."
                 else:
                     display_row[key] = value if value is not None else ""
             display_data.append(display_row)
@@ -236,8 +243,8 @@ def render_database_viewer(ui_context):
                 st.info("No schema information available.")
         
         # Custom SQL query section
-        with st.expander("🔍 Custom SQL Query", expanded=False):
-            st.warning("⚠️ Use with caution. Incorrect queries can affect database integrity.")
+        with st.expander("🔍 Custom SQL Query (Read-Only)", expanded=False):
+            st.info("💡 Execute read-only SELECT queries. Write operations are disabled for security.")
             
             sql_query = st.text_area(
                 "SQL Query:",
@@ -316,6 +323,9 @@ def get_row_details(row_num: int, raw_data: List[Dict[str, Any]]) -> str:
                 except:
                     # If parsing fails, just use the raw string
                     formatted_details.append(f"{key}: {value}")
+            elif isinstance(value, str) and len(value) > 200:
+                # For very long strings, show first part and indicate truncation
+                formatted_details.append(f"{key}: {value[:200]}...\n[Content truncated - full value available in database]")
             else:
                 formatted_details.append(f"{key}: {value if value is not None else 'NULL'}")
         

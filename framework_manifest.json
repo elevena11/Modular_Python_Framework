@@ -1,6 +1,6 @@
 {
-  "version": "1.0.4",
-  "generated_at": "2025-09-17T10:31:10.048083",
+  "version": "1.0.5",
+  "generated_at": "2025-09-29T15:40:43.312353",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
@@ -207,7 +207,6 @@
     "ui/core/ui_config",
     "ui/core/ui_config/__init__.py",
     "ui/core/ui_config/config.py",
-    "ui/core/ui_config/constants.py",
     "ui/core/ui_config/registry.py",
     "ui/core/ui_config/services.py",
     "ui/core/ui_config/ui-config-implementation-plan.md",
@@ -228,6 +227,6 @@
     "ui/utils/security.py",
     "update_core.py"
   ],
-  "file_count": 225,
+  "file_count": 224,
   "generator": "tools/generate_manifest.py"
 }
