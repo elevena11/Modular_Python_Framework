@@ -22,7 +22,7 @@ class WorkerPool:
     
     def __init__(self, config: Dict[str, Any], model_manager_service):
         """Initialize worker pool.
-        
+
         Args:
             config: Configuration dictionary
             model_manager_service: Reference to parent model manager
@@ -30,70 +30,66 @@ class WorkerPool:
         self.config = config
         self.model_manager = model_manager_service
         self.logger = logging.getLogger(f"{MODULE_ID}.pool")
-        
+
         # Worker management
         self._workers: Dict[str, ModelWorker] = {}
         self._worker_pool_enabled = False
-        
+        self._available_devices = []  # Detected devices
+        self._max_workers = 0  # Maximum workers allowed
+
         # Queue management
         self._worker_result_queue = None
         self._global_job_queue = None
-        
+
         # Load balancing state
         self._round_robin_counter = 0
-        
+
         self.logger.info("Worker pool manager initialized")
     
     async def initialize(self) -> Result:
         """Initialize the worker pool for parallel processing.
-        
+
+        Detects available devices and sets up queues, but does NOT create workers yet.
+        Workers are created lazily when first needed (on-demand or for preloading).
+
         Returns:
             Result with initialization status
         """
         try:
             num_workers = self.config.get("worker_pool.num_workers", 2)
             devices = self.config.get("worker_pool.devices", ["cuda:0", "cuda:1"])
-            
-            # Validate device availability
-            available_devices = await self._validate_devices(devices)
-            if not available_devices:
+
+            # Detect available devices (lightweight operation)
+            self._available_devices = await self._validate_devices(devices)
+            if not self._available_devices:
                 return Result.error(
                     code="NO_DEVICES_AVAILABLE",
                     message="No suitable devices available for worker pool"
                 )
-            
-            # Limit workers to available devices
-            actual_workers = min(num_workers, len(available_devices))
-            
-            # Create result queue and global job queue
+
+            # Store max workers (will create lazily as needed)
+            self._max_workers = min(num_workers, len(self._available_devices))
+
+            # Create result queue and global job queue (needed for when workers are created)
             self._worker_result_queue = asyncio.Queue()
             self._global_job_queue = asyncio.Queue()
-            
-            # Create workers
-            created_workers = await self._create_workers(actual_workers, available_devices)
-            
-            if created_workers == 0:
-                self.logger.warning("No workers created, worker pool disabled")
-                self._worker_pool_enabled = False
-                return Result.error(
-                    code="WORKER_POOL_INIT_FAILED",
-                    message="Failed to create any workers"
-                )
-            
+
+            # Enable worker pool (workers will be created on-demand)
             self._worker_pool_enabled = True
-            self.logger.info(f"Worker pool initialized with {created_workers} workers")
-            
-            # Preload models if configured
+            self.logger.info(f"Worker pool initialized (lazy mode): max {self._max_workers} workers, devices: {self._available_devices}")
+
+            # Preload models if configured (this will trigger worker creation)
             preloaded_workers = await self._preload_models()
-            
+
             return Result.success(data={
                 "worker_pool_enabled": True,
-                "workers_created": created_workers,
+                "workers_created": len(self._workers),  # May be 0 if no preloading
                 "workers_preloaded": preloaded_workers,
-                "available_devices": available_devices,
-                "workers": {worker_id: worker.device for worker_id, worker in self._workers.items()}
+                "available_devices": self._available_devices,
+                "max_workers": self._max_workers,
+                "lazy_initialization": True
             })
-            
+
         except Exception as e:
             self.logger.error(error_message(
                 module_id=MODULE_ID,
@@ -110,43 +106,47 @@ class WorkerPool:
     
     async def _validate_devices(self, requested_devices: List[str]) -> List[str]:
         """Validate and filter available devices.
-        
+
         Args:
             requested_devices: List of requested device strings
-            
+
         Returns:
             List of available device strings
         """
         available_devices = []
-        
+
         try:
             import torch
-            if torch.cuda.is_available():
-                gpu_count = torch.cuda.device_count()
-                for device in requested_devices:
-                    if device == "cpu":
-                        available_devices.append(device)
-                    elif device.startswith("cuda:"):
+            has_cuda = torch.cuda.is_available()
+            gpu_count = torch.cuda.device_count() if has_cuda else 0
+
+            for device in requested_devices:
+                if device == "auto":
+                    # AUTO-DETECT: Use best available device
+                    if has_cuda and gpu_count > 0:
+                        # Add all available GPUs
+                        for i in range(gpu_count):
+                            available_devices.append(f"cuda:{i}")
+                        self.logger.info(f"Auto-detected {gpu_count} GPU(s)")
+                    else:
+                        # Fallback to CPU
+                        available_devices.append("cpu")
+                        self.logger.info("Auto-detected CPU (no GPUs available)")
+
+                elif device == "cpu":
+                    available_devices.append(device)
+
+                elif device.startswith("cuda:"):
+                    if has_cuda:
                         gpu_idx = int(device.split(":")[1])
                         if gpu_idx < gpu_count:
                             available_devices.append(device)
                         else:
-                            self.logger.warning(f"GPU device {device} not available (only {gpu_count} GPUs)")
+                            self.logger.warning(f"GPU {device} not available (only {gpu_count} GPUs)")
                     else:
-                        self.logger.warning(f"Unknown device type: {device}")
-            else:
-                if self.config.get("worker_pool.require_gpu", True):
-                    self.logger.error(error_message(
-                        module_id=MODULE_ID,
-                        error_type="GPU_REQUIREMENT_NOT_MET",
-                        details="CUDA not available and GPU required - CPU usage disabled",
-                        location="WorkerPool._validate_devices()",
-                        context={"require_gpu": True, "cuda_available": False}
-                    ))
-                    return []
+                        self.logger.warning(f"GPU {device} requested but CUDA not available")
                 else:
-                    self.logger.warning("CUDA not available, using CPU fallback")
-                    available_devices = ["cpu"] * len(requested_devices)
+                    self.logger.warning(f"Unknown device type: {device}")
                     
         except ImportError:
             if self.config.get("worker_pool.require_gpu", True):
@@ -161,43 +161,49 @@ class WorkerPool:
         
         return available_devices
     
-    async def _create_workers(self, num_workers: int, available_devices: List[str]) -> int:
-        """Create worker instances.
-        
+    async def _ensure_workers(self, min_workers: int = 1) -> bool:
+        """Ensure at least min_workers are available (create on-demand if needed).
+
         Args:
-            num_workers: Number of workers to create
-            available_devices: Available device list
-            
+            min_workers: Minimum number of workers needed
+
         Returns:
-            Number of successfully created workers
+            True if we have enough workers, False otherwise
         """
-        created_workers = 0
-        
-        for i in range(num_workers):
-            device = available_devices[i % len(available_devices)]
-            worker_id = f"worker_{i}"
-            
+        if len(self._workers) >= min_workers:
+            return True  # Already have enough workers
+
+        # Need to create workers
+        workers_needed = min(min_workers, self._max_workers) - len(self._workers)
+        if workers_needed <= 0:
+            return len(self._workers) > 0
+
+        self.logger.info(f"Creating {workers_needed} worker(s) on-demand...")
+
+        for i in range(workers_needed):
+            worker_id = f"worker_{len(self._workers)}"
+
             try:
-                worker = ModelWorker(worker_id, device, self.model_manager)
+                # Create device-agnostic worker (no device parameter)
+                worker = ModelWorker(worker_id, self.model_manager)
                 if await worker.start():
                     self._workers[worker_id] = worker
-                    created_workers += 1
-                    self.logger.info(f"Created worker {worker_id} on device {device}")
+                    self.logger.info(f"Created worker {worker_id} on-demand")
                 else:
-                    self.logger.error(f"Failed to start worker {worker_id} on device {device}")
+                    self.logger.error(f"Failed to start worker {worker_id}")
             except Exception as e:
                 self.logger.error(f"Error creating worker {worker_id}: {e}")
-        
-        return created_workers
+
+        return len(self._workers) > 0
     
     async def _preload_models(self) -> int:
         """Preload models on workers if configured.
-        
+
         Returns:
             Number of workers with preloaded models
         """
         preloaded_workers = 0
-        
+
         if self.config.get("worker_pool.preload_embeddings", False):
             self.logger.info("Preloading embedding models on all workers...")
             for worker_id, worker in self._workers.items():
@@ -209,38 +215,198 @@ class WorkerPool:
                     self.logger.info(f"Preloaded embedding model on worker {worker_id}")
                 except Exception as e:
                     self.logger.warning(f"Failed to preload embedding on worker {worker_id}: {e}")
-            
+
             self.logger.info(f"Preloaded embedding models on {preloaded_workers}/{len(self._workers)} workers")
-        
+
         return preloaded_workers
-    
+
+    async def verify_model_download(self, model_id: str) -> Result:
+        """Verify model exists and download if needed (without loading to workers).
+
+        This is used when preload_workers=0, to ensure the model is downloaded
+        during startup but not loaded into memory until first use.
+
+        Uses any available worker - device selection happens at model-load time.
+        Creates worker on-demand if needed.
+
+        Args:
+            model_id: Model identifier to verify/download
+
+        Returns:
+            Result with verification status
+        """
+        try:
+            if not self._worker_pool_enabled:
+                return Result.error(
+                    code="WORKER_POOL_DISABLED",
+                    message="Worker pool not enabled"
+                )
+
+            # Ensure at least one worker exists (create on-demand if needed)
+            if not await self._ensure_workers(min_workers=1):
+                return Result.error(
+                    code="NO_WORKERS_AVAILABLE",
+                    message="Could not create workers"
+                )
+
+            # Get model's device preference for logging
+            device_preference = "auto"  # Default
+            if model_id in self.model_manager.model_registry:
+                device_preference = self.model_manager.model_registry[model_id]["config"].device
+
+            # Pick any available worker (device selected at model-load time)
+            worker = next(iter(self._workers.values()))
+
+            self.logger.info(f"Verifying/downloading model {model_id} (device={device_preference}) using worker {worker.worker_id}...")
+
+            # Load model (triggers download if needed, worker selects device based on model config)
+            try:
+                await worker.switch_model(model_id)
+                self.logger.info(f"Model {model_id} verified/downloaded successfully")
+
+                # Immediately unload to free memory (download is cached)
+                await worker._unload_model()
+                self.logger.debug(f"Model {model_id} unloaded after verification")
+
+                return Result.success(data={
+                    "verified": True,
+                    "model_id": model_id,
+                    "downloaded": True,
+                    "loaded": False,
+                    "device_preference": device_preference
+                })
+            except Exception as e:
+                self.logger.error(f"Model verification/download failed for {model_id}: {e}")
+                return Result.error(
+                    code="MODEL_VERIFICATION_FAILED",
+                    message=f"Failed to verify/download model {model_id}",
+                    details={"error": str(e)}
+                )
+
+        except Exception as e:
+            self.logger.error(f"Model verification error for {model_id}: {e}")
+            return Result.error(
+                code="MODEL_VERIFICATION_ERROR",
+                message=f"Failed to verify model {model_id}",
+                details={"error": str(e), "model_id": model_id}
+            )
+
+    async def preload_model(self, model_id: str, num_workers: int = 1) -> Result:
+        """Preload a specific model to N workers (download if needed).
+
+        This is called during model registration to ensure models are ready
+        before operation begins. If the model needs to be downloaded from
+        HuggingFace, it happens here during startup, not during runtime.
+
+        Uses any available workers - device selection happens at model-load time
+        based on model's device preference in registry.
+        Creates workers on-demand if needed.
+
+        Args:
+            model_id: Model identifier to preload
+            num_workers: Number of workers to preload model on (default: 1)
+
+        Returns:
+            Result with preload status including number of workers loaded
+        """
+        try:
+            if not self._worker_pool_enabled:
+                return Result.error(
+                    code="WORKER_POOL_DISABLED",
+                    message="Worker pool not enabled"
+                )
+
+            # Ensure we have enough workers (create on-demand if needed)
+            if not await self._ensure_workers(min_workers=num_workers):
+                return Result.error(
+                    code="NO_WORKERS_AVAILABLE",
+                    message="Could not create workers"
+                )
+
+            # Get model's device preference for logging
+            device_preference = "auto"  # Default
+            if model_id in self.model_manager.model_registry:
+                device_preference = self.model_manager.model_registry[model_id]["config"].device
+
+            # Select any available workers (up to num_workers)
+            available_workers = list(self._workers.values())
+            target_worker_list = available_workers[:num_workers]
+            target_workers = len(target_worker_list)
+
+            if target_workers == 0:
+                return Result.error(
+                    code="NO_WORKERS_AVAILABLE",
+                    message="No workers available"
+                )
+
+            self.logger.info(f"Preloading model {model_id} (device={device_preference}) on {target_workers} worker(s)...")
+
+            loaded_workers = []
+            errors = []
+
+            # Preload to selected workers (worker selects device based on model config)
+            for worker in target_worker_list:
+                try:
+                    self.logger.debug(f"Preloading {model_id} on worker {worker.worker_id}...")
+                    await worker.switch_model(model_id)
+                    loaded_workers.append(worker.worker_id)
+                    # Log actual device used after loading
+                    actual_device = worker.current_device or "unknown"
+                    self.logger.info(f"Model {model_id} preloaded on worker {worker.worker_id} (device={actual_device})")
+                except Exception as e:
+                    error_msg = f"Failed to preload on worker {worker.worker_id}: {e}"
+                    errors.append(error_msg)
+                    self.logger.error(error_msg)
+
+            if not loaded_workers:
+                return Result.error(
+                    code="PRELOAD_FAILED",
+                    message=f"Failed to preload model {model_id} on any workers",
+                    details={"errors": errors}
+                )
+
+            self.logger.info(f"Model {model_id} preloaded successfully on {len(loaded_workers)}/{target_workers} worker(s)")
+
+            return Result.success(data={
+                "preloaded": True,
+                "model_id": model_id,
+                "workers_loaded": len(loaded_workers),
+                "worker_ids": loaded_workers,
+                "requested_workers": num_workers,
+                "errors": errors if errors else None
+            })
+
+        except Exception as e:
+            self.logger.error(f"Model preload error for {model_id}: {e}")
+            return Result.error(
+                code="MODEL_PRELOAD_ERROR",
+                message=f"Failed to preload model {model_id}",
+                details={"error": str(e), "model_id": model_id}
+            )
+
     async def get_optimal_worker(self, model_id: str) -> Optional[str]:
         """Get the optimal worker for a given model.
-        
+
+        Workers are device-agnostic - device selection happens at model-load time
+        based on model's device preference. This method just finds an available worker.
+        Creates worker on-demand if needed.
+
         Args:
             model_id: ID of the model to be processed
-            
+
         Returns:
             Worker ID or None if no suitable worker available
         """
-        if not self._worker_pool_enabled or not self._workers:
+        if not self._worker_pool_enabled:
             return None
-        
-        # Find idle worker with device affinity
-        device_affinity = self.config.get("worker_pool.device_affinity", {})
-        preferred_devices = device_affinity.get(model_id, [])
-        
-        # First, try workers on preferred devices
-        if preferred_devices:
-            for worker_id, worker in self._workers.items():
-                if (worker.device in preferred_devices and 
-                    worker.state == WorkerState.IDLE and
-                    worker.is_running):
-                    return worker_id
-        
-        # Fall back to load balancing strategy
+
+        # Ensure at least one worker exists (create on-demand if needed)
+        if not await self._ensure_workers(min_workers=1):
+            return None
+
+        # Use load balancing strategy to select worker
         load_balancing = self.config.get("worker_pool.load_balancing", "round_robin")
-        
+
         if load_balancing == "round_robin":
             return self._get_round_robin_worker()
         elif load_balancing == "least_busy":
@@ -250,7 +416,7 @@ class WorkerPool:
             for worker_id, worker in self._workers.items():
                 if worker.state == WorkerState.IDLE and worker.is_running:
                     return worker_id
-        
+
         return None
     
     def _get_round_robin_worker(self) -> Optional[str]:
@@ -350,42 +516,40 @@ class WorkerPool:
     
     async def scale_workers(self, target_count: int) -> Result:
         """Scale worker pool to target count.
-        
+
+        Creates device-agnostic workers - device selection happens at model-load time.
+
         Args:
             target_count: Target number of workers
-            
+
         Returns:
             Result with scaling status
         """
         try:
             current_count = len(self._workers)
-            
+
             if target_count > current_count:
-                # Scale up - add workers
-                devices = self.config.get("worker_pool.devices", ["cuda:0", "cuda:1"])
-                available_devices = await self._validate_devices(devices)
-                
+                # Scale up - add device-agnostic workers
                 added_workers = 0
                 for i in range(current_count, target_count):
-                    device = available_devices[i % len(available_devices)]
                     worker_id = f"worker_{i}"
-                    
+
                     try:
-                        worker = ModelWorker(worker_id, device, self.model_manager)
+                        worker = ModelWorker(worker_id, self.model_manager)
                         if await worker.start():
                             self._workers[worker_id] = worker
                             added_workers += 1
-                            self.logger.info(f"Scaled up: added worker {worker_id} on device {device}")
+                            self.logger.info(f"Scaled up: added worker {worker_id}")
                     except Exception as e:
                         self.logger.error(f"Failed to add worker {worker_id}: {e}")
-                
+
                 return Result.success(data={"added_workers": added_workers, "total_workers": len(self._workers)})
-                
+
             elif target_count < current_count:
                 # Scale down - remove workers
                 workers_to_remove = list(self._workers.keys())[target_count:]
                 removed_workers = 0
-                
+
                 for worker_id in workers_to_remove:
                     try:
                         worker = self._workers.pop(worker_id)
@@ -394,12 +558,12 @@ class WorkerPool:
                         self.logger.info(f"Scaled down: removed worker {worker_id}")
                     except Exception as e:
                         self.logger.error(f"Failed to remove worker {worker_id}: {e}")
-                
+
                 return Result.success(data={"removed_workers": removed_workers, "total_workers": len(self._workers)})
-            
+
             else:
                 return Result.success(data={"message": "No scaling needed", "total_workers": len(self._workers)})
-                
+
         except Exception as e:
             return Result.error(
                 code="WORKER_SCALING_ERROR",

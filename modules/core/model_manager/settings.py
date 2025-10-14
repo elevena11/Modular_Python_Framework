@@ -166,18 +166,25 @@ class WorkerPoolConfig(BaseModel):
     model_config = ConfigDict(env_prefix="CORE_MODEL_MANAGER_WORKER_POOL_")
     
     enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable multi-GPU worker pool"
     )
     num_workers: int = Field(
-        default=2,
+        default=3,
         ge=1,
         le=8,
         description="Number of worker processes for concurrent request handling"
     )
     devices: List[str] = Field(
-        default=["auto"],
-        description="GPU devices for workers ('auto' detects all available GPUs, or specify list like ['cuda:0', 'cuda:1'])"
+        default=["auto", "cpu"],
+        description=(
+            "Device list for workers. Options:\n"
+            "  - ['auto']: Auto-detect all GPUs (or CPU if no GPU)\n"
+            "  - ['cuda:0', 'cuda:1']: Specific GPU devices\n"
+            "  - ['cpu']: CPU-only workers\n"
+            "  - ['auto', 'cpu']: Auto-detect GPUs + 1 CPU worker (recommended default)\n"
+            "  - ['cuda:0', 'cpu']: Mixed GPU + CPU workers (for small models on CPU)"
+        )
     )
     batch_size: int = Field(
         default=32,
@@ -301,12 +308,8 @@ class ModelManagerSettings(BaseModel):
     
     # General module settings - Framework infrastructure only
     enabled: bool = Field(
-        default=False,
+        default=True,
         description="Enable or disable the model manager service"
-    )
-    models_config_file: str = Field(
-        default="modules/core/model_manager/models.config",
-        description="Path to user model configuration file"
     )
     log_model_usage: bool = Field(
         default=True,

@@ -4,7 +4,7 @@ Model Manager Service - Clean orchestration layer using modular components.
 
 Refactored from monolithic services.py to use:
 - workers/: Worker pool management and individual workers
-- cache/: Embedding caching system  
+- cache/: Embedding caching system
 - loaders/: Model loading abstractions and implementations
 - models/: Model reference and metadata management
 
@@ -16,11 +16,28 @@ Provides high-level API for:
 - Resource management
 """
 
+import os
+from pathlib import Path
+from core.paths import get_data_path
+
+# Configure HuggingFace cache location BEFORE any HuggingFace imports
+# This must happen at module load time, not during initialization
+MODELS_DIR = get_data_path("models")
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.environ["HF_HOME"] = str(MODELS_DIR)
+os.environ["TRANSFORMERS_CACHE"] = str(MODELS_DIR / "transformers")
+os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODELS_DIR / "sentence-transformers")
+
+# NOW import everything else
 import logging
 import time
 import uuid
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 from core.error_utils import Result, error_message
+
+# Type checking imports (not executed at runtime to avoid circular imports)
+if TYPE_CHECKING:
+    from .schemas import ModelRequirement
 
 # Import modular components
 from .workers import WorkerPool, WorkerTask, WorkerResult
@@ -51,9 +68,12 @@ class ModelManagerService:
         self.embedding_cache = None
         self.loader_factory = None
         
-        # Model registry
+        # Model registry - tracks loaded model instances
         self._loaded_models: Dict[str, ModelReference] = {}
-        
+
+        # Model registry - tracks registered model requirements from modules
+        self.model_registry: Dict[str, Dict[str, Any]] = {}
+
         # Initialization state
         self._initialized = False
         
@@ -72,13 +92,10 @@ class ModelManagerService:
             await self._load_configuration()
             
             # Check if module is enabled
-            if not self.config.get("enabled", False):
+            if not self.config.get("enabled", True):
                 self.logger.info("Model manager disabled - no AI features active")
                 return Result.success(data={"initialized": False, "reason": "disabled"})
-            
-            # Load user's model configuration
-            await self._load_user_models()
-            
+
             # Initialize components
             await self._initialize_components()
             
@@ -151,122 +168,51 @@ class ModelManagerService:
         
         return {
             # Main module settings - Framework infrastructure only
-            "enabled": getattr(settings, 'enabled', False),
-            "models_config_file": getattr(settings, 'models_config_file', "models.config"),
+            "enabled": getattr(settings, 'enabled', True),
             "log_model_usage": getattr(settings, 'log_model_usage', True),
-            
+
             # Worker pool settings
-            "worker_pool.enabled": getattr(worker_pool, 'enabled', False) if worker_pool else False,
-            "worker_pool.num_workers": getattr(worker_pool, 'num_workers', 2) if worker_pool else 2,
-            "worker_pool.devices": getattr(worker_pool, 'devices', ["cuda:0", "cuda:1"]) if worker_pool else ["cuda:0", "cuda:1"],
+            "worker_pool.enabled": getattr(worker_pool, 'enabled', True) if worker_pool else True,
+            "worker_pool.num_workers": getattr(worker_pool, 'num_workers', 1) if worker_pool else 1,
+            "worker_pool.devices": getattr(worker_pool, 'devices', ["auto"]) if worker_pool else ["auto"],
             "worker_pool.require_gpu": getattr(worker_pool, 'require_gpu', False) if worker_pool else False,
             "worker_pool.queue_timeout": getattr(worker_pool, 'queue_timeout', 30) if worker_pool else 30,
             "worker_pool.model_idle_timeout": getattr(worker_pool, 'model_idle_timeout', 300) if worker_pool else 300,
             "worker_pool.preload_embeddings": getattr(worker_pool, 'preload_embeddings', False) if worker_pool else False,
             "worker_pool.load_balancing": getattr(worker_pool, 'load_balancing', "round_robin") if worker_pool else "round_robin",
-            
+
             # Embedding cache settings
             "embedding_cache.enabled": getattr(embedding_cache, 'enabled', True) if embedding_cache else True,
             "embedding_cache.max_cache_size": getattr(embedding_cache, 'max_cache_size', 10000) if embedding_cache else 10000,
             "embedding_cache.ttl_seconds": getattr(embedding_cache, 'ttl_seconds', 3600) if embedding_cache else 3600,
-            
-            # User models will be loaded from models.config
-            "user_models": {}
         }
     
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default configuration.
-        
+
         Returns:
             Default configuration dictionary
         """
         return {
             # Main module settings - Framework infrastructure only
-            "enabled": False,
-            "models_config_file": "modules/core/model_manager/models.config",
+            "enabled": True,
             "log_model_usage": True,
-            
-            # Worker pool settings - disabled by default
-            "worker_pool.enabled": False,
-            "worker_pool.num_workers": 2,
+
+            # Worker pool settings - enabled by default with auto device detection
+            "worker_pool.enabled": True,
+            "worker_pool.num_workers": 1,
             "worker_pool.devices": ["auto"],
             "worker_pool.require_gpu": False,
             "worker_pool.queue_timeout": 30,
             "worker_pool.model_idle_timeout": 300,
             "worker_pool.preload_embeddings": False,
             "worker_pool.load_balancing": "round_robin",
-            
+
             # Embedding cache settings
             "embedding_cache.enabled": True,
             "embedding_cache.max_cache_size": 10000,
             "embedding_cache.ttl_seconds": 3600,
-            
-            # User models will be loaded from models.config
-            "user_models": {}
         }
-    
-    async def _load_user_models(self):
-        """Load user's model configuration from models.config file."""
-        import os
-        import yaml
-        
-        models_config_path = self.config.get("models_config_file", "models.config")
-        
-        if not os.path.exists(models_config_path):
-            self.logger.info("No models.config found - AI features available but no models configured")
-            return
-        
-        try:
-            with open(models_config_path, 'r') as f:
-                user_config = yaml.safe_load(f)
-            
-            if not user_config:
-                self.logger.info("Empty models.config file - no models configured")
-                return
-            
-            # Load worker pool settings from user config if present
-            if "worker_pool" in user_config:
-                user_worker_config = user_config["worker_pool"]
-                if "enabled" in user_worker_config:
-                    self.config["worker_pool.enabled"] = user_worker_config["enabled"]
-                if "num_workers" in user_worker_config:
-                    self.config["worker_pool.num_workers"] = user_worker_config["num_workers"]
-                if "devices" in user_worker_config:
-                    self.config["worker_pool.devices"] = user_worker_config["devices"]
-                if "require_gpu" in user_worker_config:
-                    self.config["worker_pool.require_gpu"] = user_worker_config["require_gpu"]
-            
-            # Load embedding cache settings from user config if present
-            if "embedding_cache" in user_config:
-                user_cache_config = user_config["embedding_cache"]
-                if "enabled" in user_cache_config:
-                    self.config["embedding_cache.enabled"] = user_cache_config["enabled"]
-                if "max_cache_size" in user_cache_config:
-                    self.config["embedding_cache.max_cache_size"] = user_cache_config["max_cache_size"]
-                if "ttl_seconds" in user_cache_config:
-                    self.config["embedding_cache.ttl_seconds"] = user_cache_config["ttl_seconds"]
-            
-            # Only load models the user has enabled
-            enabled_models = {}
-            if "models" in user_config:
-                for model_id, model_config in user_config["models"].items():
-                    if model_config.get("enabled", False):
-                        enabled_models[model_id] = model_config
-                        self.logger.info(f"Loading user model: {model_id}")
-                    else:
-                        self.logger.debug(f"Skipping disabled model: {model_id}")
-            
-            self.config["user_models"] = enabled_models
-            
-            if enabled_models:
-                self.logger.info(f"Loaded {len(enabled_models)} enabled models from user configuration")
-            else:
-                self.logger.info("No models enabled in user configuration")
-                
-        except yaml.YAMLError as e:
-            self.logger.error(f"Failed to parse models.config: {e}")
-        except Exception as e:
-            self.logger.error(f"Failed to load user models configuration: {e}")
     
     async def _initialize_components(self):
         """Initialize modular components."""
@@ -601,30 +547,175 @@ class ModelManagerService:
                 details={"error": str(e), "device": device}
             )
     
-    async def release_model(self, model_id: str) -> Result:
+    async def register_model(self, model_id: str, model_config: 'ModelRequirement', requester_module_id: str) -> Result:
+        """Register a model requirement from a module.
+
+        Modules call this during initialization to register their model needs.
+        The model is downloaded/verified at registration time to catch issues early.
+
+        Args:
+            model_id: Unique identifier for this model
+            model_config: ModelRequirement schema with model configuration
+            requester_module_id: Module ID requesting the model
+
+        Returns:
+            Result with registration status
+
+        Example:
+            from modules.core.model_manager.schemas import ModelRequirement
+
+            model_req = ModelRequirement(
+                model_type="embedding",
+                name="sentence-transformers/all-MiniLM-L6-v2",
+                dimension=384,
+                device="auto"
+            )
+            result = await model_manager.register_model("my_embeddings", model_req, "standard.my_module")
+        """
+        try:
+            # Import here to avoid circular imports
+            from .schemas import ModelRequirement
+
+            # Validate model_config is ModelRequirement
+            if not isinstance(model_config, ModelRequirement):
+                return Result.error(
+                    code="INVALID_MODEL_CONFIG",
+                    message="model_config must be a ModelRequirement instance"
+                )
+
+            # Check if model_id already exists
+            if model_id in self.model_registry:
+                # Model already registered - add requester if not already in set
+                registration = self.model_registry[model_id]
+                registration["requesters"].add(requester_module_id)
+                registration["reference_count"] += 1
+
+                self.logger.info(f"Model {model_id} already registered, added requester: {requester_module_id}")
+
+                return Result.success(data={
+                    "registered": True,
+                    "model_id": model_id,
+                    "new_registration": False,
+                    "reference_count": registration["reference_count"],
+                    "requesters": list(registration["requesters"])
+                })
+
+            # New registration
+            self.model_registry[model_id] = {
+                "config": model_config,
+                "requesters": {requester_module_id},
+                "reference_count": 1,
+                "loaded": False,
+                "load_time": None,
+                "last_accessed": None
+            }
+
+            # Add to config dict for backwards compatibility with loaders
+            # This flattens the ModelRequirement into config keys
+            self.config[f"models.{model_id}.type"] = model_config.model_type
+            self.config[f"models.{model_id}.name"] = model_config.name
+            self.config[f"models.{model_id}.device"] = model_config.device
+            self.config[f"models.{model_id}.batch_size"] = model_config.batch_size
+            if model_config.local_path:
+                self.config[f"models.{model_id}.local_path"] = model_config.local_path
+            if model_config.dimension:
+                self.config[f"models.{model_id}.dimension"] = model_config.dimension
+            if model_config.cache_embeddings is not None:
+                self.config[f"models.{model_id}.cache_embeddings"] = model_config.cache_embeddings
+            if model_config.max_input_length:
+                self.config[f"models.{model_id}.max_input_length"] = model_config.max_input_length
+            if model_config.max_output_length:
+                self.config[f"models.{model_id}.max_output_length"] = model_config.max_output_length
+
+            self.logger.info(f"Registered model {model_id} from {requester_module_id}: {model_config.model_type} - {model_config.name}")
+
+            # Preload model based on module's preload_workers setting
+            preload_workers = model_config.preload_workers
+
+            if self.worker_pool and self.worker_pool.is_enabled:
+                if preload_workers > 0:
+                    self.logger.info(f"Preloading model {model_id} to {preload_workers} worker(s)...")
+                    preload_result = await self.worker_pool.preload_model(model_id, num_workers=preload_workers)
+
+                    if preload_result.success:
+                        self.model_registry[model_id]["loaded"] = True
+                        self.model_registry[model_id]["load_time"] = time.time()
+                        workers_loaded = preload_result.data.get("workers_loaded", 0)
+                        self.logger.info(f"Model {model_id} preloaded to {workers_loaded} worker(s)")
+                    else:
+                        # Log warning but don't fail registration - model will load on first use
+                        self.logger.warning(f"Model {model_id} preload failed (will load on-demand): {preload_result.error}")
+                elif preload_workers == 0:
+                    # Download/verify only - don't load to workers
+                    self.logger.info(f"Verifying model {model_id} (download if needed, no worker preload)...")
+                    verify_result = await self.worker_pool.verify_model_download(model_id)
+
+                    if verify_result.success:
+                        self.logger.info(f"Model {model_id} verified/downloaded successfully")
+                    else:
+                        self.logger.warning(f"Model {model_id} verification failed: {verify_result.error}")
+            else:
+                # No worker pool - just log
+                if preload_workers > 0:
+                    self.logger.warning(f"Worker pool not enabled, model {model_id} will load on-demand")
+
+            return Result.success(data={
+                "registered": True,
+                "model_id": model_id,
+                "new_registration": True,
+                "model_type": model_config.model_type,
+                "model_name": model_config.name,
+                "reference_count": 1
+            })
+
+        except Exception as e:
+            self.logger.error(f"Model registration error for {model_id}: {e}")
+            return Result.error(
+                code="MODEL_REGISTRATION_ERROR",
+                message=f"Failed to register model {model_id}",
+                details={"error": str(e), "model_id": model_id}
+            )
+
+    async def release_model(self, model_id: str, requester_module_id: Optional[str] = None) -> Result:
         """Release a model reference.
-        
+
         Args:
             model_id: Model identifier to release
-            
+            requester_module_id: Module ID releasing the model (optional)
+
         Returns:
             Result with release status
         """
         try:
+            # Decrement registry reference count if registered
+            if model_id in self.model_registry:
+                registration = self.model_registry[model_id]
+                registration["reference_count"] = max(0, registration["reference_count"] - 1)
+
+                # Remove requester if specified
+                if requester_module_id and requester_module_id in registration["requesters"]:
+                    registration["requesters"].remove(requester_module_id)
+
+                # If no more references, consider removing from registry
+                if registration["reference_count"] == 0:
+                    del self.model_registry[model_id]
+                    self.logger.info(f"Removed model {model_id} from registry (no more references)")
+
+            # Release from loaded models if loaded
             if model_id in self._loaded_models:
                 model_ref = self._loaded_models[model_id]
                 model_ref.remove_reference()
-                
+
                 # If no more references and model is idle, consider unloading
                 if model_ref.reference_count == 0 and model_ref.is_idle(300):  # 5 minute idle timeout
                     del self._loaded_models[model_id]
                     self.logger.info(f"Unloaded idle model: {model_id}")
                     return Result.success(data={"unloaded": True})
-                
+
                 return Result.success(data={"released": True, "references": model_ref.reference_count})
-            
-            return Result.success(data={"message": f"Model {model_id} not found in registry"})
-            
+
+            return Result.success(data={"message": f"Model {model_id} not found in loaded models"})
+
         except Exception as e:
             return Result.error(
                 code="MODEL_RELEASE_ERROR",

@@ -20,38 +20,41 @@ MODULE_ID = "core.model_manager"
 
 
 class ModelWorker:
-    """Individual worker that can load different model types dynamically."""
-    
-    def __init__(self, worker_id: str, device: str, model_manager_service):
-        """Initialize model worker.
-        
+    """Device-agnostic worker that loads models on-demand based on model requirements.
+
+    Workers are generic execution contexts - they don't have pre-assigned devices.
+    Device selection happens at model-load time based on the model's requirements.
+    """
+
+    def __init__(self, worker_id: str, model_manager_service):
+        """Initialize model worker (device-agnostic).
+
         Args:
             worker_id: Unique identifier for this worker
-            device: Target device (e.g., 'cuda:0', 'cpu')
             model_manager_service: Reference to parent model manager
         """
         self.worker_id = worker_id
-        self.device = device
         self.model_manager = model_manager_service
         self.logger = logging.getLogger(f"{MODULE_ID}.worker.{worker_id}")
-        
+
         # State management
         self.state = WorkerState.IDLE
         self.current_model_id = None
         self.current_model = None
+        self.current_device = None  # Track current device (determined by loaded model)
         self.is_preloaded = False  # Track if current model was preloaded
         self.last_activity = time.time()
         self.task_queue = asyncio.Queue()
         self.is_running = False
         self._worker_task = None
-        
+
         # Performance tracking
         self.tasks_processed = 0
         self.total_processing_time = 0.0
         self.errors = 0
         self.model_switches = 0
-        
-        self.logger.info(f"Worker {worker_id} created on device {device}")
+
+        self.logger.info(f"Worker {worker_id} created")
     
     async def start(self) -> bool:
         """Start the worker processing loop."""
@@ -131,12 +134,14 @@ class ModelWorker:
                     self.logger.debug(f"Worker {self.worker_id} got task from individual queue")
                 except asyncio.TimeoutError:
                     # No individual tasks, try global job queue if available
-                    if hasattr(self.model_manager, '_global_job_queue') and self.model_manager._global_job_queue is not None:
+                    if (hasattr(self.model_manager, 'worker_pool') and
+                        self.model_manager.worker_pool and
+                        self.model_manager.worker_pool._global_job_queue is not None):
                         task = await asyncio.wait_for(
-                            self.model_manager._global_job_queue.get(), 
+                            self.model_manager.worker_pool._global_job_queue.get(),
                             timeout=self.model_manager.config.get("worker_pool.queue_timeout", 30)
                         )
-                        self.model_manager._global_job_queue.task_done()
+                        self.model_manager.worker_pool._global_job_queue.task_done()
                         self.logger.debug(f"Worker {self.worker_id} got task from global queue")
                     else:
                         # No tasks available, continue loop
@@ -144,10 +149,14 @@ class ModelWorker:
                 
                 # Process the task
                 result = await self._process_task(task)
-                
+
                 # Always use result queue for simplicity and reliability
-                await self.model_manager._worker_result_queue.put(result)
-                self.logger.debug(f"Routed result for task {result.task_id} via result queue")
+                # Access result queue via worker_pool
+                if hasattr(self.model_manager, 'worker_pool') and self.model_manager.worker_pool:
+                    await self.model_manager.worker_pool._worker_result_queue.put(result)
+                    self.logger.debug(f"Routed result for task {result.task_id} via result queue")
+                else:
+                    self.logger.error(f"Cannot route result for task {result.task_id} - worker_pool not available")
                 
             except asyncio.TimeoutError:
                 # No tasks available, check for model timeout
@@ -205,7 +214,7 @@ class ModelWorker:
                 success=True,
                 data=result_data,
                 processing_time=processing_time,
-                metadata={"device": self.device, "model_id": task.model_id}
+                metadata={"device": self.current_device, "model_id": task.model_id}
             )
             
         except Exception as e:
@@ -247,143 +256,265 @@ class ModelWorker:
     
     async def _load_model(self, model_id: str):
         """Load a model on this worker with CUDA context management.
-        
+
+        Device selection is based entirely on model requirements, not worker assignment.
+
         Args:
             model_id: ID of model to load
         """
         try:
+            # Get model's device preference from registry
+            target_device = None
+            if model_id in self.model_manager.model_registry:
+                model_config = self.model_manager.model_registry[model_id]["config"]
+                requested_device = model_config.device
+
+                # Resolve device preference based on model requirements
+                if requested_device == "cpu":
+                    # Model explicitly requests CPU
+                    target_device = "cpu"
+                    self.logger.info(f"Model {model_id} requests CPU execution")
+                elif requested_device == "auto":
+                    # Auto-select best available device
+                    target_device = self._auto_select_device()
+                    self.logger.info(f"Model {model_id} auto-selected device: {target_device}")
+                elif requested_device == "cuda":
+                    # Model wants any available GPU
+                    target_device = self._select_available_gpu() or "cpu"
+                    self.logger.info(f"Model {model_id} requests GPU, using: {target_device}")
+                elif requested_device.startswith("cuda:"):
+                    # Model requests specific GPU
+                    target_device = requested_device
+                    self.logger.info(f"Model {model_id} requests specific GPU: {target_device}")
+                else:
+                    # Unknown device preference, use auto
+                    self.logger.warning(f"Model {model_id} has unknown device '{requested_device}', using auto")
+                    target_device = self._auto_select_device()
+            else:
+                # No registry info, use auto
+                target_device = self._auto_select_device()
+
             # Clear CUDA cache and synchronize before loading
-            if self.device.startswith("cuda"):
+            if target_device.startswith("cuda"):
                 try:
                     import torch
-                    device_idx = int(self.device.split(':')[1]) if ':' in self.device else 0
+                    device_idx = int(target_device.split(':')[1]) if ':' in target_device else 0
                     torch.cuda.set_device(device_idx)
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize(device_idx)
                 except (ImportError, RuntimeError) as e:
                     self.logger.warning(f"Worker {self.worker_id} CUDA setup warning: {e}")
-            
-            # Prevent CPU usage - refuse to load models on CPU
-            if self.device == "cpu" and self.model_manager.config.get("worker_pool.require_gpu", True):
-                raise RuntimeError(f"REFUSING to load {model_id} on CPU - GPU required. Fix GPU issues first.")
-            
-            # Load model instance directly on this worker's device
+
+            # Note: Removed CPU refusal check - models can explicitly request CPU now
+
+            # Load model instance directly on target device
             # Each worker needs its own model instance, not shared models
-            if model_id == "embedding":
-                model_result = await self._load_worker_embedding_model(model_id)
-            elif model_id == "t5_summarizer":
-                model_result = await self._load_worker_text_generation_model(model_id)
+
+            # Get model type from config (populated by register_model())
+            model_type = self.model_manager.config.get(f"models.{model_id}.type")
+
+            if not model_type:
+                # Check if model is in registry
+                if model_id in self.model_manager.model_registry:
+                    model_type = self.model_manager.model_registry[model_id]["config"].model_type
+                else:
+                    raise ValueError(f"Unknown model_id: {model_id} - not found in registry")
+
+            # Load based on model type (pass target_device to loader)
+            if model_type == "embedding":
+                model_result = await self._load_worker_embedding_model(model_id, target_device)
+            elif model_type in ["text2text", "text_generation"]:
+                model_result = await self._load_worker_text_generation_model(model_id, target_device)
             else:
-                raise ValueError(f"Unknown model_id: {model_id}")
-            
+                raise ValueError(f"Unsupported model type: {model_type} for model_id: {model_id}")
+
             if not model_result.success:
                 raise RuntimeError(f"Failed to load model {model_id}: {model_result.error}")
-            
+
             self.current_model = model_result.data
             self.current_model_id = model_id
+            self.current_device = target_device  # Track which device we loaded on
             self.last_activity = time.time()
-            
-            self.logger.info(f"Worker {self.worker_id} loaded model {model_id}")
-            
+
+            self.logger.info(f"Worker {self.worker_id} loaded model {model_id} on device {target_device}")
+
         except Exception as e:
             self.logger.error(f"Worker {self.worker_id} failed to load model {model_id}: {e}")
             self.state = WorkerState.ERROR
             raise
+
+    def _auto_select_device(self) -> str:
+        """Auto-select best available device (prefers GPU over CPU).
+
+        Returns:
+            Device string (e.g., 'cuda:0', 'cpu')
+        """
+        try:
+            import torch
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                # Select first available GPU
+                return "cuda:0"
+            else:
+                return "cpu"
+        except ImportError:
+            return "cpu"
+
+    def _select_available_gpu(self) -> Optional[str]:
+        """Select an available GPU device.
+
+        Returns:
+            GPU device string (e.g., 'cuda:0') or None if no GPU available
+        """
+        try:
+            import torch
+            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+                # For now, just return first GPU
+                # Could be enhanced to check GPU memory usage and select least loaded
+                return "cuda:0"
+            else:
+                return None
+        except ImportError:
+            return None
     
     async def _unload_model(self):
-        """Unload current model from this worker."""
+        """Unload current model from this worker and free GPU memory."""
         if self.current_model_id:
             self.state = WorkerState.UNLOADING
-            
+
             # Actually move model to CPU to free GPU memory
-            if self.current_model and self.device.startswith("cuda"):
+            if self.current_model and self.current_device and self.current_device.startswith("cuda"):
                 try:
-                    if hasattr(self.current_model, 'to'):
-                        self.current_model.to('cpu')
-                        self.logger.info(f"Worker {self.worker_id} moved model {self.current_model_id} to CPU")
-                    
                     import torch
+
+                    # Extract actual model from result data dictionary
+                    model_obj = None
+                    if isinstance(self.current_model, dict):
+                        model_obj = self.current_model.get("model")
+
+                    # Move model to CPU to free GPU memory
+                    if model_obj and hasattr(model_obj, 'to'):
+                        self.logger.debug(f"Worker {self.worker_id} moving model {self.current_model_id} to CPU...")
+                        model_obj.to('cpu')
+                        self.logger.info(f"Worker {self.worker_id} moved model {self.current_model_id} to CPU")
+
+                    # Also handle tokenizer if present (for text generation models)
+                    tokenizer_obj = None
+                    if isinstance(self.current_model, dict):
+                        tokenizer_obj = self.current_model.get("tokenizer")
+                    if tokenizer_obj and hasattr(tokenizer_obj, 'to'):
+                        tokenizer_obj.to('cpu')
+                        self.logger.debug(f"Worker {self.worker_id} moved tokenizer to CPU")
+
+                    # Clear CUDA cache to actually free memory
                     torch.cuda.empty_cache()
-                    self.logger.debug(f"Worker {self.worker_id} cleared CUDA cache")
+                    self.logger.info(f"Worker {self.worker_id} cleared CUDA cache for {self.current_model_id}")
+
+                    # Explicitly delete model reference to help garbage collection
+                    del model_obj
+                    if tokenizer_obj:
+                        del tokenizer_obj
+
                 except Exception as e:
-                    self.logger.warning(f"Worker {self.worker_id} failed to clear GPU memory: {e}")
-            
-            # Release model reference
+                    self.logger.error(f"Worker {self.worker_id} failed to free GPU memory: {e}", exc_info=True)
+
+            # Release model reference from model manager
             if self.current_model_id in self.model_manager._loaded_models:
                 await self.model_manager.release_model(self.current_model_id)
-            
+
+            # Clear worker's model reference
             self.current_model = None
             self.current_model_id = None
+            self.current_device = None  # Clear device tracking
             self.is_preloaded = False
             self.state = WorkerState.IDLE
-            
+
             self.logger.info(f"Worker {self.worker_id} unloaded model completely")
     
-    async def _load_worker_embedding_model(self, model_id: str):
+    async def _load_worker_embedding_model(self, model_id: str, target_device: str = None):
         """Load embedding model instance specifically for this worker.
-        
+
         Args:
             model_id: ID of the embedding model to load
-            
+            target_device: Target device to load model on
+
         Returns:
             Result with model instance
         """
         try:
             from core.error_utils import Result
-            
-            # Get model configuration
+
+            # Use target_device (should always be provided in device-agnostic architecture)
+            device = target_device if target_device else "cpu"
+
+            # Get model configuration - try local_path first, fallback to name
             model_path = self.model_manager.config.get(f"models.{model_id}.local_path")
-            if not model_path:
+            model_name = self.model_manager.config.get(f"models.{model_id}.name")
+
+            # Use local_path if available, otherwise use name (HuggingFace path)
+            model_path_or_name = model_path if model_path else model_name
+
+            if not model_path_or_name:
                 return Result.error(
                     code="MODEL_PATH_NOT_CONFIGURED",
-                    message=f"Model path not configured for {model_id}"
+                    message=f"Neither local_path nor name configured for {model_id}"
                 )
-            
-            self.logger.info(f"Loading SentenceTransformer model from local path: {model_path} on {self.device}")
-            
-            # Load SentenceTransformer directly on this worker's device
+
+            self.logger.info(f"Loading SentenceTransformer model {model_path_or_name} on {device}")
+
+            # Load SentenceTransformer directly on target device
             from sentence_transformers import SentenceTransformer
-            
-            model = SentenceTransformer(model_path, device=self.device)
-            
-            # Get model dimension for validation
+
+            model = SentenceTransformer(model_path_or_name, device=device)
+
+            # Get model dimension from the model's architecture
             try:
-                sample_embedding = model.encode(["test"], convert_to_tensor=True)
-                dimension = sample_embedding.shape[1]
+                # Get dimension directly from model without encoding
+                dimension = model.get_sentence_embedding_dimension()
                 self.logger.info(f"Successfully loaded embedding model: {model_id} (dimension: {dimension})")
             except Exception as e:
-                self.logger.warning(f"Could not determine embedding dimension: {e}")
-                dimension = None
+                # Fallback: try a simple encoding without tensor conversion
+                try:
+                    sample_embedding = model.encode(["test"], convert_to_numpy=True)
+                    dimension = sample_embedding.shape[1] if len(sample_embedding.shape) > 1 else sample_embedding.shape[0]
+                    self.logger.info(f"Successfully loaded embedding model: {model_id} (dimension: {dimension})")
+                except Exception as e2:
+                    self.logger.warning(f"Could not determine embedding dimension: {e}, {e2}")
+                    dimension = None
             
             return Result.success(data={
                 "model": model,
                 "model_id": model_id,
                 "dimension": dimension,
-                "device": self.device,
+                "device": device,
                 "worker_instance": True
             })
             
         except Exception as e:
             from core.error_utils import Result
-            self.logger.error(f"Failed to load embedding model {model_id} on {self.device}: {e}")
+            device = target_device if target_device else "cpu"
+            self.logger.error(f"Failed to load embedding model {model_id} on {device}: {e}")
             return Result.error(
                 code="EMBEDDING_MODEL_LOAD_ERROR",
                 message=f"Failed to load embedding model {model_id}",
-                details={"error": str(e), "device": self.device}
+                details={"error": str(e), "device": device}
             )
     
-    async def _load_worker_text_generation_model(self, model_id: str):
+    async def _load_worker_text_generation_model(self, model_id: str, target_device: str = None):
         """Load text generation model instance specifically for this worker.
-        
+
         Args:
             model_id: ID of the text generation model to load
-            
+            target_device: Target device to load model on
+
         Returns:
             Result with model instance
         """
         try:
             from core.error_utils import Result
-            
+
+            # Use target_device (should always be provided in device-agnostic architecture)
+            device = target_device if target_device else "cpu"
+
             # Get model configuration
             model_name = self.model_manager.config.get(f"models.{model_id}.name")
             if not model_name:
@@ -391,32 +522,33 @@ class ModelWorker:
                     code="MODEL_NAME_NOT_CONFIGURED",
                     message=f"Model name not configured for {model_id}"
                 )
-            
-            self.logger.info(f"Loading T5 model {model_name} on {self.device}")
-            
-            # Load T5 model directly on this worker's device
+
+            self.logger.info(f"Loading T5 model {model_name} on {device}")
+
+            # Load T5 model directly on target device
             from transformers import T5ForConditionalGeneration, AutoTokenizer
-            
-            model = T5ForConditionalGeneration.from_pretrained(model_name).to(self.device)
+
+            model = T5ForConditionalGeneration.from_pretrained(model_name).to(device)
             tokenizer = AutoTokenizer.from_pretrained(model_name)
-            
-            self.logger.info(f"Successfully loaded T5 model: {model_id} on {self.device}")
-            
+
+            self.logger.info(f"Successfully loaded T5 model: {model_id} on {device}")
+
             return Result.success(data={
                 "model": model,
                 "tokenizer": tokenizer,
                 "model_id": model_id,
-                "device": self.device,
+                "device": device,
                 "worker_instance": True
             })
-            
+
         except Exception as e:
             from core.error_utils import Result
-            self.logger.error(f"Failed to load T5 model {model_id} on {self.device}: {e}")
+            device = target_device if target_device else "cpu"
+            self.logger.error(f"Failed to load T5 model {model_id} on {device}: {e}")
             return Result.error(
                 code="T5_MODEL_LOAD_ERROR",
                 message=f"Failed to load T5 model {model_id}",
-                details={"error": str(e), "device": self.device}
+                details={"error": str(e), "device": device}
             )
     
     async def _check_model_timeout(self):
@@ -436,42 +568,48 @@ class ModelWorker:
     
     async def _process_embedding_task(self, task: WorkerTask):
         """Process an embedding task.
-        
+
         Args:
             task: Embedding task
-            
+
         Returns:
             Embedding results
         """
         if "model" not in self.current_model:
             raise RuntimeError("No embedding model loaded")
-        
+
         model = self.current_model["model"]
         texts = task.input_data
-        
+
         # Generate embeddings with CUDA synchronization
         try:
             # Ensure CUDA context is correct for this worker
-            if self.device.startswith("cuda"):
+            if self.current_device and self.current_device.startswith("cuda"):
                 import torch
-                device_idx = int(self.device.split(':')[1]) if ':' in self.device else 0
+                device_idx = int(self.current_device.split(':')[1]) if ':' in self.current_device else 0
                 torch.cuda.set_device(device_idx)
-            
+
+            # Generate embeddings with explicit numpy conversion
+            # convert_to_numpy=True ensures we get numpy arrays that can be safely converted
             if isinstance(texts, str):
-                embeddings = model.encode([texts])
-                result_embeddings = embeddings[0].tolist()
+                embeddings = model.encode([texts], convert_to_numpy=True, show_progress_bar=False)
+                # Make a copy to avoid shared memory issues, then convert to list
+                import numpy as np
+                result_embeddings = np.array(embeddings[0], copy=True).tolist()
             else:
-                embeddings = model.encode(texts)
-                result_embeddings = [emb.tolist() for emb in embeddings]
-            
+                embeddings = model.encode(texts, convert_to_numpy=True, show_progress_bar=False)
+                # Make copies to avoid shared memory issues, then convert to lists
+                import numpy as np
+                result_embeddings = [np.array(emb, copy=True).tolist() for emb in embeddings]
+
             # Synchronize CUDA operations after processing
-            if self.device.startswith("cuda"):
+            if self.current_device and self.current_device.startswith("cuda"):
                 torch.cuda.synchronize(device_idx)
-                
+
         except Exception as e:
             self.logger.error(f"Worker {self.worker_id} embedding error: {e}")
             raise
-        
+
         return {
             "embeddings": result_embeddings,
             "model_id": task.model_id,
@@ -528,17 +666,17 @@ class ModelWorker:
     
     def get_status(self):
         """Get worker status information.
-        
+
         Returns:
             Worker status dictionary
         """
         avg_processing_time = (
             self.total_processing_time / max(1, self.tasks_processed)
         )
-        
+
         return {
             "worker_id": self.worker_id,
-            "device": self.device,
+            "device": self.current_device,  # Device of currently loaded model
             "state": self.state.value,
             "current_model_id": self.current_model_id,
             "is_running": self.is_running,
