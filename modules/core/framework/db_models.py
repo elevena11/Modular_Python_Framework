@@ -1,6 +1,6 @@
 """
-Database models for core.global module
-Reserved for future global framework tables.
+Database models for core.framework module
+Reserved for future framework tables.
 """
 
 # Database configuration for file-based discovery

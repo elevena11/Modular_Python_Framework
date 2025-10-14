@@ -1,13 +1,17 @@
 """
-modules/core/global/api.py
+modules/core/framework/api.py
 NEW DECORATOR PATTERN - Migrated from manual initialize() to declarative registration
-Entry point for the global core module using centralized registration system
+Entry point for the framework core module using centralized registration system
 """
 
 import logging
 from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Request
 from core.error_utils import error_message, create_error_response
+from core.version import get_session_info
+
+# Module logger
+logger = logging.getLogger(__name__)
 
 # Import complete decorator system for centralized registration
 from core.decorators import (
@@ -84,7 +88,7 @@ from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, Framework
 @force_shutdown(method="force_cleanup", timeout=5)
 class FrameworkModule(DataIntegrityModule):
     """
-    Global core module using the new decorator-based registration pattern.
+    Framework core module using the new decorator-based registration pattern.
     
     Notice the dramatic reduction in code:
     - No manual service registration
@@ -244,12 +248,7 @@ async def get_session_info():
         import time
         from datetime import datetime
         
-        session_info = {
-            "session_id": "framework_session",  # This should come from actual session
-            "session_start_time": datetime.now().isoformat(),
-            "framework_version": "1.0.0",
-            "uptime_seconds": time.time()  # This should track actual uptime
-        }
+        session_info = get_session_info()
         
         return session_info
         

@@ -21,7 +21,7 @@ class SessionInfoResponse(BaseModel):
             "example": {
                 "session_id": "20250814_143022_a7b9c8d1",
                 "session_start_time": "2025-08-14T14:30:22.123456",
-                "framework_version": "1.0.0",
+                "framework_version": "1.0.5",
                 "uptime_seconds": 3600.5
             }
         }

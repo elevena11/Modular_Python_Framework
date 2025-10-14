@@ -157,11 +157,46 @@ class ManifestGenerator:
     def save_manifest(self, manifest: Dict[str, Any], output_file: str = "framework_manifest.json") -> None:
         """Save manifest to file."""
         output_path = self.project_root / output_file
-        
+
         with open(output_path, 'w') as f:
             json.dump(manifest, f, indent=2)
-        
+
         print(f"💾 Manifest saved to: {output_path}")
+
+        # Also update .framework_version to match manifest version
+        self.update_framework_version(manifest["version"])
+
+    def update_framework_version(self, version: str) -> None:
+        """Update .framework_version file to match manifest version."""
+        framework_version_file = self.project_root / ".framework_version"
+
+        # Read existing .framework_version if it exists
+        existing_data = {}
+        if framework_version_file.exists():
+            try:
+                with open(framework_version_file, 'r') as f:
+                    existing_data = json.load(f)
+            except json.JSONDecodeError:
+                pass  # Start fresh if corrupted
+
+        # Update version data
+        version_data = {
+            "version": version,
+            "commit": existing_data.get("commit", ""),
+            "updated_date": datetime.now().isoformat(),
+            "source": "manifest_generation",
+            "project_name": existing_data.get("project_name", "Modular_Python_Framework")
+        }
+
+        # Preserve additional fields if they exist
+        for key, value in existing_data.items():
+            if key not in version_data:
+                version_data[key] = value
+
+        with open(framework_version_file, 'w') as f:
+            json.dump(version_data, f, indent=2)
+
+        print(f"🔄 Updated .framework_version to v{version}")
     
     def validate_manifest(self, manifest: Dict[str, Any]) -> bool:
         """Validate that manifest files actually exist."""
