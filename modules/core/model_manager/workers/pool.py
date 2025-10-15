@@ -40,9 +40,7 @@ class WorkerPool:
         # Queue management
         self._worker_result_queue = None
         self._global_job_queue = None
-
-        # Load balancing state
-        self._round_robin_counter = 0
+        self._pending_tasks = {}  # task_id -> asyncio.Future for O(1) result delivery
 
         self.logger.info("Worker pool manager initialized")
     
@@ -76,6 +74,10 @@ class WorkerPool:
 
             # Enable worker pool (workers will be created on-demand)
             self._worker_pool_enabled = True
+
+            # Start background task to process results from queue and deliver to futures
+            self._result_processor_task = asyncio.create_task(self._process_results())
+
             self.logger.info(f"Worker pool initialized (lazy mode): max {self._max_workers} workers, devices: {self._available_devices}")
 
             # Preload models if configured (this will trigger worker creation)
@@ -183,12 +185,15 @@ class WorkerPool:
         for i in range(workers_needed):
             worker_id = f"worker_{len(self._workers)}"
 
+            # Assign device from available devices pool (round-robin distribution)
+            assigned_device = self._available_devices[len(self._workers) % len(self._available_devices)]
+
             try:
-                # Create device-agnostic worker (no device parameter)
-                worker = ModelWorker(worker_id, self.model_manager)
+                # Create worker with assigned device for load balancing
+                worker = ModelWorker(worker_id, self.model_manager, assigned_device=assigned_device)
                 if await worker.start():
                     self._workers[worker_id] = worker
-                    self.logger.info(f"Created worker {worker_id} on-demand")
+                    self.logger.info(f"Created worker {worker_id} on-demand (assigned: {assigned_device})")
                 else:
                     self.logger.error(f"Failed to start worker {worker_id}")
             except Exception as e:
@@ -221,13 +226,14 @@ class WorkerPool:
         return preloaded_workers
 
     async def verify_model_download(self, model_id: str) -> Result:
-        """Verify model exists and download if needed (without loading to workers).
+        """Verify model exists and download if needed (without loading into memory).
 
         This is used when preload_workers=0, to ensure the model is downloaded
         during startup but not loaded into memory until first use.
 
-        Uses any available worker - device selection happens at model-load time.
-        Creates worker on-demand if needed.
+        Uses LoaderFactory to download model files without loading them into memory.
+        This is efficient even for large models (7B+ parameters) as it only downloads
+        files to cache and never loads them into RAM/VRAM.
 
         Args:
             model_id: Model identifier to verify/download
@@ -242,46 +248,47 @@ class WorkerPool:
                     message="Worker pool not enabled"
                 )
 
-            # Ensure at least one worker exists (create on-demand if needed)
-            if not await self._ensure_workers(min_workers=1):
-                return Result.error(
-                    code="NO_WORKERS_AVAILABLE",
-                    message="Could not create workers"
-                )
-
             # Get model's device preference for logging
             device_preference = "auto"  # Default
             if model_id in self.model_manager.model_registry:
                 device_preference = self.model_manager.model_registry[model_id]["config"].device
 
-            # Pick any available worker (device selected at model-load time)
-            worker = next(iter(self._workers.values()))
+            # Use LoaderFactory to download without loading into memory
+            # This is much more efficient than loading and unloading, especially for large models
+            if not hasattr(self.model_manager, 'loader_factory'):
+                return Result.error(
+                    code="LOADER_FACTORY_NOT_AVAILABLE",
+                    message="LoaderFactory not initialized in model_manager"
+                )
 
-            self.logger.info(f"Verifying/downloading model {model_id} (device={device_preference}) using worker {worker.worker_id}...")
+            loader_factory = self.model_manager.loader_factory
 
-            # Load model (triggers download if needed, worker selects device based on model config)
-            try:
-                await worker.switch_model(model_id)
-                self.logger.info(f"Model {model_id} verified/downloaded successfully")
+            self.logger.info(f"Verifying/downloading model {model_id} (device={device_preference}) without loading into memory...")
 
-                # Immediately unload to free memory (download is cached)
-                await worker._unload_model()
-                self.logger.debug(f"Model {model_id} unloaded after verification")
+            # Download model files without loading (instant if already cached)
+            download_result = await loader_factory.download_only(model_id)
 
-                return Result.success(data={
-                    "verified": True,
-                    "model_id": model_id,
-                    "downloaded": True,
-                    "loaded": False,
-                    "device_preference": device_preference
-                })
-            except Exception as e:
-                self.logger.error(f"Model verification/download failed for {model_id}: {e}")
+            if not download_result.success:
+                self.logger.error(f"Model verification/download failed for {model_id}: {download_result.error}")
                 return Result.error(
                     code="MODEL_VERIFICATION_FAILED",
                     message=f"Failed to verify/download model {model_id}",
-                    details={"error": str(e)}
+                    details={"error": download_result.error}
                 )
+
+            # Model successfully downloaded/verified without loading into memory
+            self.logger.info(f"Model {model_id} verified/downloaded successfully (cached={download_result.data.get('cached', False)})")
+
+            return Result.success(data={
+                "verified": True,
+                "model_id": model_id,
+                "downloaded": True,
+                "loaded": False,
+                "cached": download_result.data.get("cached", False),
+                "location": download_result.data.get("location"),
+                "source": download_result.data.get("source"),
+                "device_preference": device_preference
+            })
 
         except Exception as e:
             self.logger.error(f"Model verification error for {model_id}: {e}")
@@ -384,135 +391,64 @@ class WorkerPool:
                 details={"error": str(e), "model_id": model_id}
             )
 
-    async def get_optimal_worker(self, model_id: str) -> Optional[str]:
-        """Get the optimal worker for a given model.
+    async def _process_results(self):
+        """Background task that processes results from queue and delivers to futures.
 
-        Workers are device-agnostic - device selection happens at model-load time
-        based on model's device preference. This method just finds an available worker.
-        Creates worker on-demand if needed.
-
-        Args:
-            model_id: ID of the model to be processed
-
-        Returns:
-            Worker ID or None if no suitable worker available
+        This eliminates the O(n²) queue-shuffling problem by delivering results
+        directly to the awaiting future for each task_id.
         """
-        if not self._worker_pool_enabled:
-            return None
+        self.logger.info("Result processor background task started")
+        while self._worker_pool_enabled:
+            try:
+                # Get result from queue
+                result = await self._worker_result_queue.get()
+                self.logger.debug(f"Result processor got result for task {result.task_id}")
 
-        # Ensure at least one worker exists (create on-demand if needed)
-        if not await self._ensure_workers(min_workers=1):
-            return None
+                # Find the future waiting for this task
+                future = self._pending_tasks.pop(result.task_id, None)
+                if future and not future.done():
+                    # Deliver result to the waiting future
+                    future.set_result(result)
+                    self.logger.debug(f"Result delivered to future for task {result.task_id}")
+                else:
+                    # No one waiting for this result (shouldn't happen)
+                    self.logger.warning(f"Received result for task {result.task_id} but no future waiting (future={'exists' if future else 'None'}, done={future.done() if future else 'N/A'})")
 
-        # Use load balancing strategy to select worker
-        load_balancing = self.config.get("worker_pool.load_balancing", "round_robin")
+            except asyncio.CancelledError:
+                # Shutting down
+                self.logger.info("Result processor task cancelled (shutting down)")
+                break
+            except Exception as e:
+                self.logger.error(f"Error processing result: {e}", exc_info=True)
 
-        if load_balancing == "round_robin":
-            return self._get_round_robin_worker()
-        elif load_balancing == "least_busy":
-            return self._get_least_busy_worker()
-        else:
-            # Default to first available idle worker
-            for worker_id, worker in self._workers.items():
-                if worker.state == WorkerState.IDLE and worker.is_running:
-                    return worker_id
+    async def submit_task(self, task: WorkerTask) -> asyncio.Future:
+        """Submit a task to the shared global queue and return a future for the result.
 
-        return None
-    
-    def _get_round_robin_worker(self) -> Optional[str]:
-        """Get next worker using round-robin strategy.
-        
-        Returns:
-            Worker ID or None if no workers available
-        """
-        worker_ids = list(self._workers.keys())
-        if not worker_ids:
-            return None
-        
-        attempts = 0
-        while attempts < len(worker_ids):
-            worker_id = worker_ids[self._round_robin_counter % len(worker_ids)]
-            worker = self._workers[worker_id]
-            
-            self._round_robin_counter = (self._round_robin_counter + 1) % len(worker_ids)
-            
-            if worker.state == WorkerState.IDLE and worker.is_running:
-                return worker_id
-            
-            attempts += 1
-        
-        return None
-    
-    def _get_least_busy_worker(self) -> Optional[str]:
-        """Get worker with least load using least-busy strategy.
-        
-        Returns:
-            Worker ID or None if no workers available
-        """
-        best_worker = None
-        min_queue_size = float('inf')
-        
-        for worker_id, worker in self._workers.items():
-            if worker.is_running and worker.state != WorkerState.SHUTDOWN:
-                queue_size = worker.task_queue.qsize()
-                if queue_size < min_queue_size:
-                    min_queue_size = queue_size
-                    best_worker = worker_id
-        
-        return best_worker
-    
-    async def submit_task(self, task: WorkerTask) -> Optional[WorkerResult]:
-        """Submit a task to the worker pool.
-        
+        Workers pull from the shared global queue, providing natural load balancing.
+        This is non-blocking - it submits the task and immediately returns a future.
+
         Args:
             task: Task to process
-            
+
         Returns:
-            Task result or None if submission failed
+            Future that will contain the WorkerResult when complete
         """
         if not self._worker_pool_enabled:
-            return None
-        
-        # Get optimal worker for this task
-        worker_id = await self.get_optimal_worker(task.model_id)
-        
-        if worker_id:
-            # Submit to specific worker
-            worker = self._workers[worker_id]
-            if await worker.submit_task(task):
-                # Wait for result from result queue
-                return await self._get_task_result(task.task_id)
-        else:
-            # Submit to global queue
-            await self._global_job_queue.put(task)
-            return await self._get_task_result(task.task_id)
-        
-        return None
-    
-    async def _get_task_result(self, task_id: str, timeout: float = 60.0) -> Optional[WorkerResult]:
-        """Wait for task result from result queue.
-        
-        Args:
-            task_id: ID of task to wait for
-            timeout: Maximum time to wait for result
-            
-        Returns:
-            Task result or None if timeout
-        """
-        try:
-            while True:
-                result = await asyncio.wait_for(
-                    self._worker_result_queue.get(),
-                    timeout=timeout
-                )
-                if result.task_id == task_id:
-                    return result
-                else:
-                    # Put back result for different task
-                    await self._worker_result_queue.put(result)
-        except asyncio.TimeoutError:
-            self.logger.warning(f"Task {task_id} result timeout after {timeout}s")
-            return None
+            # Return a completed future with None
+            future = asyncio.Future()
+            future.set_result(None)
+            return future
+
+        # Create a future for this task (O(1) result delivery)
+        future = asyncio.Future()
+        self._pending_tasks[task.task_id] = future
+
+        # Submit to global queue - workers will pull from it
+        self.logger.info(f"Submitting task {task.task_id[:8]} to shared global queue")
+        await self._global_job_queue.put(task)
+
+        # Return the future immediately (non-blocking!)
+        return future
     
     async def scale_workers(self, target_count: int) -> Result:
         """Scale worker pool to target count.
@@ -529,17 +465,20 @@ class WorkerPool:
             current_count = len(self._workers)
 
             if target_count > current_count:
-                # Scale up - add device-agnostic workers
+                # Scale up - add workers with device distribution
                 added_workers = 0
                 for i in range(current_count, target_count):
                     worker_id = f"worker_{i}"
 
+                    # Assign device from available devices pool (round-robin distribution)
+                    assigned_device = self._available_devices[i % len(self._available_devices)]
+
                     try:
-                        worker = ModelWorker(worker_id, self.model_manager)
+                        worker = ModelWorker(worker_id, self.model_manager, assigned_device=assigned_device)
                         if await worker.start():
                             self._workers[worker_id] = worker
                             added_workers += 1
-                            self.logger.info(f"Scaled up: added worker {worker_id}")
+                            self.logger.info(f"Scaled up: added worker {worker_id} (assigned: {assigned_device})")
                     except Exception as e:
                         self.logger.error(f"Failed to add worker {worker_id}: {e}")
 
@@ -605,7 +544,24 @@ class WorkerPool:
     async def shutdown(self):
         """Shutdown the worker pool."""
         self.logger.info("Shutting down worker pool...")
-        
+
+        # Disable worker pool first (stops result processor loop)
+        self._worker_pool_enabled = False
+
+        # Cancel background result processor
+        if hasattr(self, '_result_processor_task') and self._result_processor_task:
+            self._result_processor_task.cancel()
+            try:
+                await self._result_processor_task
+            except asyncio.CancelledError:
+                pass
+
+        # Cancel any pending futures
+        for task_id, future in list(self._pending_tasks.items()):
+            if not future.done():
+                future.cancel()
+        self._pending_tasks.clear()
+
         # Stop all workers
         for worker_id, worker in list(self._workers.items()):
             try:
@@ -613,10 +569,9 @@ class WorkerPool:
                 self.logger.info(f"Stopped worker {worker_id}")
             except Exception as e:
                 self.logger.error(f"Error stopping worker {worker_id}: {e}")
-        
+
         self._workers.clear()
-        self._worker_pool_enabled = False
-        
+
         # Clear queues
         if self._global_job_queue:
             while not self._global_job_queue.empty():
@@ -624,14 +579,14 @@ class WorkerPool:
                     self._global_job_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-        
+
         if self._worker_result_queue:
             while not self._worker_result_queue.empty():
                 try:
                     self._worker_result_queue.get_nowait()
                 except asyncio.QueueEmpty:
                     break
-        
+
         self.logger.info("Worker pool shutdown complete")
     
     @property

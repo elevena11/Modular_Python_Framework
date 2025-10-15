@@ -64,41 +64,48 @@ class EmbeddingLoader(BaseLoader):
                     code="INVALID_DEVICE",
                     message=f"Invalid device format: {device}"
                 )
-            
-            # Check if CPU usage is allowed
-            if device == "cpu" and self.config.get("worker_pool.require_gpu", True):
-                return Result.error(
-                    code="CPU_NOT_ALLOWED",
-                    message="GPU required for model loading, CPU usage disabled"
-                )
-            
-            # Get model path from configuration
+
+            # Note: Removed CPU refusal check - models can explicitly request CPU now
+            # This is part of device-agnostic architecture
+
+            # Get model path from configuration - try local_path first, fallback to name
             model_path = self._get_model_config(model_id, "local_path")
-            if not model_path:
+            model_name = self._get_model_config(model_id, "name")
+
+            # Use local_path if available, otherwise use name (HuggingFace path)
+            model_path_or_name = model_path if model_path else model_name
+
+            if not model_path_or_name:
                 return Result.error(
                     code="MODEL_PATH_NOT_CONFIGURED",
-                    message=f"Model path not configured for {model_id}"
+                    message=f"Neither local_path nor name configured for {model_id}"
                 )
-            
+
             # Set up CUDA device if needed
             if device.startswith("cuda"):
                 self._setup_cuda_device(device)
-            
-            self.logger.info(f"Loading SentenceTransformer model from: {model_path} on {device}")
+
+            self.logger.info(f"Loading SentenceTransformer model {model_path_or_name} on {device}")
             
             # Load SentenceTransformer model
             from sentence_transformers import SentenceTransformer
-            
-            model = SentenceTransformer(model_path, device=device)
-            
-            # Validate model by testing with sample input
+
+            model = SentenceTransformer(model_path_or_name, device=device)
+
+            # Get model dimension from the model's architecture
             try:
-                sample_embedding = model.encode(["test"], convert_to_tensor=True)
-                dimension = sample_embedding.shape[1]
+                # Get dimension directly from model without encoding
+                dimension = model.get_sentence_embedding_dimension()
                 self.logger.info(f"Successfully loaded embedding model: {model_id} (dimension: {dimension})")
             except Exception as e:
-                self.logger.warning(f"Could not determine embedding dimension: {e}")
-                dimension = None
+                # Fallback: try a simple encoding with numpy conversion
+                try:
+                    sample_embedding = model.encode(["test"], convert_to_numpy=True)
+                    dimension = sample_embedding.shape[1] if len(sample_embedding.shape) > 1 else sample_embedding.shape[0]
+                    self.logger.info(f"Successfully loaded embedding model: {model_id} (dimension: {dimension})")
+                except Exception as e2:
+                    self.logger.warning(f"Could not determine embedding dimension: {e}, {e2}")
+                    dimension = None
             
             return Result.success(data={
                 "model": model,
@@ -124,6 +131,104 @@ class EmbeddingLoader(BaseLoader):
                 details={"error": str(e), "device": device}
             )
     
+    async def download_only(self, model_id: str) -> Result:
+        """Download embedding model files without loading into memory.
+
+        Uses HuggingFace's snapshot_download to download model files to cache.
+        If model is already cached, returns immediately without downloading.
+
+        Args:
+            model_id: Identifier for the embedding model to download
+
+        Returns:
+            Result with download status and cache location
+        """
+        try:
+            # Get model path from configuration - try local_path first, fallback to name
+            model_path = self._get_model_config(model_id, "local_path")
+            model_name = self._get_model_config(model_id, "name")
+
+            # Use local_path if available, otherwise use name (HuggingFace path)
+            model_path_or_name = model_path if model_path else model_name
+
+            if not model_path_or_name:
+                return Result.error(
+                    code="MODEL_PATH_NOT_CONFIGURED",
+                    message=f"Neither local_path nor name configured for {model_id}"
+                )
+
+            # Check if this is a local path or HuggingFace model
+            from pathlib import Path
+            if Path(model_path_or_name).exists():
+                # Local model - already exists
+                self.logger.info(f"Model {model_id} found locally at {model_path_or_name}")
+                return Result.success(data={
+                    "model_id": model_id,
+                    "cached": True,
+                    "location": model_path_or_name,
+                    "source": "local"
+                })
+
+            # HuggingFace model - check cache first, download if needed
+            try:
+                from huggingface_hub import snapshot_download
+
+                # First, try to load from cache only (no network)
+                try:
+                    cache_dir = snapshot_download(
+                        repo_id=model_path_or_name,
+                        local_files_only=True,  # Check cache only, no download
+                    )
+                    self.logger.info(f"Model {model_id} found in cache at {cache_dir}")
+
+                    return Result.success(data={
+                        "model_id": model_id,
+                        "cached": True,
+                        "location": cache_dir,
+                        "source": "huggingface_cache",
+                        "model_name": model_path_or_name
+                    })
+
+                except Exception:
+                    # Not in cache, need to download
+                    self.logger.info(f"Model {model_path_or_name} not in cache, downloading...")
+
+                    cache_dir = snapshot_download(
+                        repo_id=model_path_or_name,
+                        local_files_only=False,  # Allow download
+                        resume_download=True,    # Resume if interrupted
+                    )
+
+                    self.logger.info(f"Model {model_id} downloaded to cache at {cache_dir}")
+
+                    return Result.success(data={
+                        "model_id": model_id,
+                        "cached": True,
+                        "location": cache_dir,
+                        "source": "huggingface_download",
+                        "model_name": model_path_or_name
+                    })
+
+            except Exception as e:
+                self.logger.warning(f"Failed to download model {model_path_or_name}: {e}")
+                # Don't fail - model might still load via SentenceTransformers' cache
+                return Result.success(data={
+                    "model_id": model_id,
+                    "cached": "unknown",
+                    "location": "unknown",
+                    "source": "huggingface_cache_check_failed",
+                    "model_name": model_path_or_name,
+                    "warning": str(e)
+                })
+
+        except Exception as e:
+            self.logger.error(f"Failed to download model {model_id}: {e}")
+            return Result.error(
+                code="MODEL_DOWNLOAD_ERROR",
+                message=f"Failed to download model {model_id}",
+                details={"error": str(e)}
+            )
+
     def get_loader_info(self) -> Dict[str, Any]:
         """Get embedding loader information.
         

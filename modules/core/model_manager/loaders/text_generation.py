@@ -64,14 +64,10 @@ class TextGenerationLoader(BaseLoader):
                     code="INVALID_DEVICE",
                     message=f"Invalid device format: {device}"
                 )
-            
-            # Check if CPU usage is allowed
-            if device == "cpu" and self.config.get("worker_pool.require_gpu", True):
-                return Result.error(
-                    code="CPU_NOT_ALLOWED",
-                    message="GPU required for model loading, CPU usage disabled"
-                )
-            
+
+            # Note: Removed CPU refusal check - models can explicitly request CPU now
+            # This is part of device-agnostic architecture
+
             # Get model name from configuration
             model_name = self._get_model_config(model_id, "name")
             if not model_name:
@@ -79,11 +75,11 @@ class TextGenerationLoader(BaseLoader):
                     code="MODEL_NAME_NOT_CONFIGURED",
                     message=f"Model name not configured for {model_id}"
                 )
-            
+
             # Set up CUDA device if needed
             if device.startswith("cuda"):
                 self._setup_cuda_device(device)
-            
+
             self.logger.info(f"Loading T5 model {model_name} on {device}")
             
             # Load T5 model and tokenizer
@@ -130,6 +126,79 @@ class TextGenerationLoader(BaseLoader):
                 details={"error": str(e), "device": device}
             )
     
+    async def download_only(self, model_id: str) -> Result:
+        """Download text generation model files without loading into memory.
+
+        Uses HuggingFace's snapshot_download to download model files to cache.
+        If model is already cached, returns immediately without downloading.
+
+        Args:
+            model_id: Identifier for the text generation model to download
+
+        Returns:
+            Result with download status and cache location
+        """
+        try:
+            # Get model name from configuration
+            model_name = self._get_model_config(model_id, "name")
+            if not model_name:
+                return Result.error(
+                    code="MODEL_NAME_NOT_CONFIGURED",
+                    message=f"Model name not configured for {model_id}"
+                )
+
+            # Check if this is a local path or HuggingFace model
+            from pathlib import Path
+            if Path(model_name).exists():
+                # Local model - already exists
+                self.logger.info(f"Model {model_id} found locally at {model_name}")
+                return Result.success(data={
+                    "model_id": model_id,
+                    "cached": True,
+                    "location": model_name,
+                    "source": "local"
+                })
+
+            # HuggingFace model - use snapshot_download to cache it
+            self.logger.info(f"Downloading model {model_name} to cache (if not already cached)...")
+
+            try:
+                from huggingface_hub import snapshot_download
+
+                # Download to cache (or verify cache if already exists)
+                # This does NOT load the model into memory
+                cache_dir = snapshot_download(
+                    repo_id=model_name,
+                    local_files_only=False,  # Allow download if not cached
+                    resume_download=True,     # Resume if interrupted
+                )
+
+                self.logger.info(f"Model {model_id} cached at {cache_dir}")
+
+                return Result.success(data={
+                    "model_id": model_id,
+                    "cached": True,
+                    "location": cache_dir,
+                    "source": "huggingface",
+                    "model_name": model_name
+                })
+
+            except Exception as e:
+                self.logger.error(f"Failed to download model {model_name}: {e}")
+                return Result.error(
+                    code="MODEL_DOWNLOAD_FAILED",
+                    message=f"Failed to download model {model_id}",
+                    details={"error": str(e), "model_name": model_name}
+                )
+
+        except Exception as e:
+            self.logger.error(f"Failed to download model {model_id}: {e}")
+            return Result.error(
+                code="MODEL_DOWNLOAD_ERROR",
+                message=f"Failed to download model {model_id}",
+                details={"error": str(e)}
+            )
+
     def get_loader_info(self) -> Dict[str, Any]:
         """Get text generation loader information.
         

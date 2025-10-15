@@ -286,19 +286,23 @@ class ModelManagerService:
                 created_at=time.time()
             )
             
-            # Submit task to worker pool
-            result = await self.worker_pool.submit_task(task)
-            
+            # Submit task to worker pool (returns future immediately)
+            future = await self.worker_pool.submit_task(task)
+
+            # Wait for result
+            result = await future
+
             if result and result.success:
                 # Cache the results
                 await self.embedding_cache.cache_embeddings(texts, result.data["embeddings"], model_id)
-                
+
                 return Result.success(data={
                     "embeddings": result.data["embeddings"],
                     "model_id": model_id,
                     "cached": False,
                     "processing_time": result.processing_time,
-                    "worker_id": result.worker_id
+                    "worker_id": result.worker_id,
+                    "metadata": result.metadata  # Include device info from worker
                 })
             else:
                 error_msg = result.error if result else "No result returned"
@@ -420,9 +424,12 @@ class ModelManagerService:
                 created_at=time.time()
             )
             
-            # Submit task to worker pool
-            result = await self.worker_pool.submit_task(task)
-            
+            # Submit task to worker pool (returns future immediately)
+            future = await self.worker_pool.submit_task(task)
+
+            # Wait for result
+            result = await future
+
             if result and result.success:
                 return Result.success(data={
                     "generated_text": result.data["generated_text"],
@@ -803,24 +810,38 @@ class ModelManagerService:
             )
     
     async def cleanup_resources(self):
-        """Clean up all service resources."""
+        """Clean up all service resources.
+
+        Automatically unloads ALL models and clears the registry so individual
+        modules don't need to manually call release_model() during shutdown.
+        """
         try:
             self.logger.info("Starting resource cleanup...")
-            
-            # Shutdown worker pool
+
+            # Log registered models before cleanup
+            if self.model_registry:
+                self.logger.info(f"Cleaning up {len(self.model_registry)} registered model(s)")
+                for model_id, registration in self.model_registry.items():
+                    requesters = ", ".join(registration["requesters"])
+                    self.logger.info(f"  - {model_id} (requesters: {requesters})")
+
+            # Clear model registry (workers will unload models automatically during shutdown)
+            self.model_registry.clear()
+
+            # Shutdown worker pool (workers will unload their current models)
             if self.worker_pool:
                 await self.worker_pool.shutdown()
-            
+
             # Clear cache
             if self.embedding_cache:
                 self.embedding_cache.clear_cache()
-            
-            # Clear loaded models
+
+            # Clear loaded models from direct loading
             self._loaded_models.clear()
-            
+
             self._initialized = False
-            self.logger.info("Resource cleanup completed")
-            
+            self.logger.info("Resource cleanup completed - all models unloaded, registry cleared")
+
         except Exception as e:
             self.logger.error(f"Resource cleanup error: {e}")
     
@@ -830,14 +851,17 @@ class ModelManagerService:
         Called during emergency shutdown via @force_shutdown decorator.
         """
         try:
+            # Clear model registry immediately
+            self.model_registry.clear()
+
             # Clear loaded models immediately
             self._loaded_models.clear()
-            
+
             # Clear cache if available
             if self.embedding_cache:
                 self.embedding_cache.clear_cache()
-            
+
             self._initialized = False
-            
+
         except Exception as e:
             self.logger.error(f"Force cleanup error: {e}")

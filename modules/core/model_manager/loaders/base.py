@@ -29,16 +29,32 @@ class BaseLoader(ABC):
     @abstractmethod
     async def load_model(self, model_id: str, device: str) -> Result:
         """Load a model instance.
-        
+
         Args:
             model_id: Identifier for the model to load
             device: Target device (e.g., 'cuda:0', 'cpu')
-            
+
         Returns:
             Result with loaded model instance and metadata
         """
         pass
-    
+
+    @abstractmethod
+    async def download_only(self, model_id: str) -> Result:
+        """Download model files without loading into memory.
+
+        This is used for model verification during startup. It checks if the model
+        is already cached locally, and downloads it if needed, but never loads it
+        into memory.
+
+        Args:
+            model_id: Identifier for the model to download
+
+        Returns:
+            Result with download status (cached=True if already exists)
+        """
+        pass
+
     @abstractmethod
     def supports_model(self, model_id: str) -> bool:
         """Check if this loader supports the given model.

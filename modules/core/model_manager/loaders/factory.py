@@ -55,11 +55,11 @@ class LoaderFactory:
     
     async def load_model(self, model_id: str, device: str) -> Result:
         """Load a model using the appropriate loader.
-        
+
         Args:
             model_id: Model identifier
             device: Target device
-            
+
         Returns:
             Result with loaded model or error
         """
@@ -72,17 +72,51 @@ class LoaderFactory:
                     message=f"No loader available for model {model_id}",
                     details={"available_loaders": [l.__class__.__name__ for l in self._loaders]}
                 )
-            
+
             # Load model using selected loader
             self.logger.info(f"Loading model {model_id} on {device} using {loader.__class__.__name__}")
             return await loader.load_model(model_id, device)
-            
+
         except Exception as e:
             self.logger.error(f"Factory model loading error: {e}")
             return Result.error(
                 code="FACTORY_LOAD_ERROR",
                 message=f"Factory failed to load model {model_id}",
                 details={"error": str(e), "device": device}
+            )
+
+    async def download_only(self, model_id: str) -> Result:
+        """Download model files without loading into memory.
+
+        Uses the appropriate loader to download/verify model files without
+        loading them into memory. If model is already cached, returns immediately.
+
+        Args:
+            model_id: Model identifier
+
+        Returns:
+            Result with download status
+        """
+        try:
+            # Find appropriate loader
+            loader = self.get_loader_for_model(model_id)
+            if not loader:
+                return Result.error(
+                    code="NO_LOADER_FOUND",
+                    message=f"No loader available for model {model_id}",
+                    details={"available_loaders": [l.__class__.__name__ for l in self._loaders]}
+                )
+
+            # Download model using selected loader (no memory loading)
+            self.logger.info(f"Downloading/verifying model {model_id} using {loader.__class__.__name__}")
+            return await loader.download_only(model_id)
+
+        except Exception as e:
+            self.logger.error(f"Factory model download error: {e}")
+            return Result.error(
+                code="FACTORY_DOWNLOAD_ERROR",
+                message=f"Factory failed to download model {model_id}",
+                details={"error": str(e)}
             )
     
     def get_supported_models(self) -> Dict[str, List[str]]:
