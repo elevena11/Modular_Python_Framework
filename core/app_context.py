@@ -22,14 +22,19 @@ class AppContext:
     
     def __init__(self, config):
         """Initialize the application context with configuration."""
+        import os
+
         self.config = config
         self.logger = logging.getLogger("app.context")
-        
+
         # Generate unique session identifier for this app instance
         self.session_uuid = str(uuid.uuid4())
         self.session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{self.session_uuid[:8]}"
         self.session_start_time = datetime.now()
-        
+
+        # Set SESSION_ID environment variable for error logging
+        os.environ["SESSION_ID"] = self.session_id
+
         self.api_router = None
         self.db_engine = None
         self.db_session = None
@@ -38,12 +43,12 @@ class AppContext:
         self.post_init_hooks = {}  # Store post-initialization hooks
         self.startup_warnings = []  # Store warnings to display during startup
         self._shutdown_handlers = []  # Store shutdown handlers
-        
+
         # SQLite retry configuration
         self.max_retries = 5
         self.retry_delay_base = 0.1  # Base delay in seconds
         self.retry_delay_max = 2.0   # Maximum delay in seconds
-        
+
         # Log session start
         self.logger.info(f"Application session started: {self.session_id}")
         
