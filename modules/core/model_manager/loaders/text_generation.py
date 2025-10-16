@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any
 from .base import BaseLoader
 from core.error_utils import Result
+from core.paths import ensure_data_path
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.loaders"
@@ -81,12 +82,22 @@ class TextGenerationLoader(BaseLoader):
                 self._setup_cuda_device(device)
 
             self.logger.info(f"Loading T5 model {model_name} on {device}")
-            
-            # Load T5 model and tokenizer
+
+            # Load T5 model and tokenizer with framework's cache directory
             from transformers import T5ForConditionalGeneration, AutoTokenizer
-            
-            model = T5ForConditionalGeneration.from_pretrained(model_name).to(device)
-            tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+            # Get cache directory from config (defaults to "models" if not set)
+            cache_dir_name = self.config.get("models_cache_dir", "models")
+            models_cache_dir = ensure_data_path(cache_dir_name)
+
+            model = T5ForConditionalGeneration.from_pretrained(
+                model_name,
+                cache_dir=models_cache_dir
+            ).to(device)
+            tokenizer = AutoTokenizer.from_pretrained(
+                model_name,
+                cache_dir=models_cache_dir
+            )
             
             # Test model with sample input to validate loading
             try:
@@ -164,15 +175,20 @@ class TextGenerationLoader(BaseLoader):
                 })
 
             # HuggingFace model - use snapshot_download to cache it
-            self.logger.info(f"Downloading model {model_name} to cache (if not already cached)...")
-
             try:
                 from huggingface_hub import snapshot_download
+
+                # Get cache directory from config (defaults to "models" if not set)
+                cache_dir_name = self.config.get("models_cache_dir", "models")
+                models_cache_dir = ensure_data_path(cache_dir_name)
+
+                self.logger.info(f"Downloading model {model_name} to {models_cache_dir} (if not already cached)...")
 
                 # Download to cache (or verify cache if already exists)
                 # This does NOT load the model into memory
                 cache_dir = snapshot_download(
                     repo_id=model_name,
+                    cache_dir=models_cache_dir,
                     local_files_only=False,  # Allow download if not cached
                     resume_download=True,     # Resume if interrupted
                 )

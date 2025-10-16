@@ -16,19 +16,6 @@ Provides high-level API for:
 - Resource management
 """
 
-import os
-from pathlib import Path
-from core.paths import get_data_path
-
-# Configure HuggingFace cache location BEFORE any HuggingFace imports
-# This must happen at module load time, not during initialization
-MODELS_DIR = get_data_path("models")
-os.makedirs(MODELS_DIR, exist_ok=True)
-os.environ["HF_HOME"] = str(MODELS_DIR)
-os.environ["TRANSFORMERS_CACHE"] = str(MODELS_DIR / "transformers")
-os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODELS_DIR / "sentence-transformers")
-
-# NOW import everything else
 import asyncio
 import logging
 import time
@@ -56,19 +43,19 @@ class ModelManagerService:
     
     def __init__(self, app_context):
         """Initialize model manager service.
-        
+
         Args:
             app_context: Application context for framework integration
         """
         self.app_context = app_context
         self.logger = logging.getLogger(MODULE_ID)
-        self.config = {}
-        
+        self.settings = None  # Will be set in initialize()
+
         # Initialize modular components
         self.worker_pool = None
         self.embedding_cache = None
         self.loader_factory = None
-        
+
         # Model registry - tracks loaded model instances
         self._loaded_models: Dict[str, ModelReference] = {}
 
@@ -91,20 +78,27 @@ class ModelManagerService:
         """Phase 2: Initialize service with component orchestration."""
         try:
             self.logger.info(f"{MODULE_ID}: Initializing service with modular components")
-            
-            # Get configuration
-            await self._load_configuration()
-            
+
+            # Store settings - received from framework before initialize() is called
+            if settings:
+                self.settings = settings
+                self.logger.info("Loaded settings from framework")
+            else:
+                self.logger.warning("No settings provided, using defaults")
+                # Import settings model and create default instance
+                from .settings import ModelManagerSettings
+                self.settings = ModelManagerSettings()
+
             # Check if module is enabled
-            if not self.config.get("enabled", True):
+            if not self.settings.enabled:
                 self.logger.info("Model manager disabled - no AI features active")
                 return Result.success(data={"initialized": False, "reason": "disabled"})
 
             # Initialize components
             await self._initialize_components()
-            
+
             # Initialize worker pool if enabled
-            if self.config.get("worker_pool.enabled", False):
+            if self.settings.worker_pool.enabled:
                 pool_result = await self.worker_pool.initialize()
                 if not pool_result.success:
                     self.logger.warning(f"Worker pool initialization failed: {pool_result.error}")
@@ -116,7 +110,7 @@ class ModelManagerService:
             self._initialized = True
             self.logger.info(f"{MODULE_ID}: Service initialization completed successfully")
             return Result.success(data={"initialized": True})
-            
+
         except Exception as e:
             self.logger.error(error_message(
                 module_id=MODULE_ID,
@@ -129,109 +123,20 @@ class ModelManagerService:
                 message="Failed to initialize model manager service",
                 details={"error": str(e)}
             )
-    
-    async def _load_configuration(self):
-        """Load configuration from settings service."""
-        try:
-            settings_service = self.app_context.get_service("core.settings.service")
-            if settings_service:
-                # Import the Pydantic model
-                from .settings import ModelManagerSettings
-                
-                # Get model manager specific settings
-                settings_result = await settings_service.get_typed_settings(
-                    module_id=MODULE_ID,
-                    model_class=ModelManagerSettings
-                )
-                if settings_result.success:
-                    settings_data = settings_result.data
-                    
-                    # Convert Pydantic settings to config dictionary
-                    self.config = self._convert_settings_to_config(settings_data)
-                    self.logger.info("Loaded configuration from settings service")
-                else:
-                    self.logger.warning("Failed to load typed settings, using defaults")
-                    self.config = self._get_default_config()
-            else:
-                self.logger.warning("Settings service not available, using defaults")
-                self.config = self._get_default_config()
-                
-        except Exception as e:
-            self.logger.error(f"Configuration loading error: {e}")
-            self.config = self._get_default_config()
-    
-    def _convert_settings_to_config(self, settings) -> Dict[str, Any]:
-        """Convert Pydantic settings to configuration dictionary.
-        
-        Args:
-            settings: Pydantic settings object
-            
-        Returns:
-            Configuration dictionary
-        """
-        # Extract nested settings from Pydantic model structure
-        worker_pool = getattr(settings, 'worker_pool', None)
-        embedding_cache = getattr(settings, 'embedding_cache', None)
-        
-        return {
-            # Main module settings - Framework infrastructure only
-            "enabled": getattr(settings, 'enabled', True),
-            "log_model_usage": getattr(settings, 'log_model_usage', True),
-
-            # Worker pool settings
-            "worker_pool.enabled": getattr(worker_pool, 'enabled', True) if worker_pool else True,
-            "worker_pool.num_workers": getattr(worker_pool, 'num_workers', 1) if worker_pool else 1,
-            "worker_pool.devices": getattr(worker_pool, 'devices', ["auto"]) if worker_pool else ["auto"],
-            "worker_pool.require_gpu": getattr(worker_pool, 'require_gpu', False) if worker_pool else False,
-            "worker_pool.queue_timeout": getattr(worker_pool, 'queue_timeout', 30) if worker_pool else 30,
-            "worker_pool.model_idle_timeout": getattr(worker_pool, 'model_idle_timeout', 300) if worker_pool else 300,
-            "worker_pool.preload_embeddings": getattr(worker_pool, 'preload_embeddings', False) if worker_pool else False,
-            "worker_pool.load_balancing": getattr(worker_pool, 'load_balancing', "round_robin") if worker_pool else "round_robin",
-
-            # Embedding cache settings
-            "embedding_cache.enabled": getattr(embedding_cache, 'enabled', True) if embedding_cache else True,
-            "embedding_cache.max_cache_size": getattr(embedding_cache, 'max_cache_size', 10000) if embedding_cache else 10000,
-            "embedding_cache.ttl_seconds": getattr(embedding_cache, 'ttl_seconds', 3600) if embedding_cache else 3600,
-        }
-    
-    def _get_default_config(self) -> Dict[str, Any]:
-        """Get default configuration.
-
-        Returns:
-            Default configuration dictionary
-        """
-        return {
-            # Main module settings - Framework infrastructure only
-            "enabled": True,
-            "log_model_usage": True,
-
-            # Worker pool settings - enabled by default with auto device detection
-            "worker_pool.enabled": True,
-            "worker_pool.num_workers": 1,
-            "worker_pool.devices": ["auto"],
-            "worker_pool.require_gpu": False,
-            "worker_pool.queue_timeout": 30,
-            "worker_pool.model_idle_timeout": 300,
-            "worker_pool.preload_embeddings": False,
-            "worker_pool.load_balancing": "round_robin",
-
-            # Embedding cache settings
-            "embedding_cache.enabled": True,
-            "embedding_cache.max_cache_size": 10000,
-            "embedding_cache.ttl_seconds": 3600,
-        }
-    
     async def _initialize_components(self):
         """Initialize modular components."""
+        # Convert settings to dict for components that expect dict config
+        config = self.settings.model_dump()
+
         # Initialize embedding cache
-        self.embedding_cache = EmbeddingCache(self.config)
-        
+        self.embedding_cache = EmbeddingCache(config)
+
         # Initialize loader factory
-        self.loader_factory = LoaderFactory(self.config)
-        
+        self.loader_factory = LoaderFactory(config)
+
         # Initialize worker pool
-        self.worker_pool = WorkerPool(self.config, self)
-        
+        self.worker_pool = WorkerPool(config, self)
+
         self.logger.info("Modular components initialized successfully")
     
     async def task(
@@ -324,12 +229,13 @@ class ModelManagerService:
 
             # If task_data is None, this is a pre-load request - just return success
             if task_data is None:
+                default_timeout = self.settings.worker_pool.model_idle_timeout
                 return Result.success(data={
                     "preloaded": True,
                     "model_name": model_name,
                     "workers": num_workers,
                     "device": device,
-                    "keep_alive_minutes": keep_alive or (self.config.get("worker_pool.model_idle_timeout", 300) // 60)
+                    "keep_alive_minutes": keep_alive or (default_timeout // 60)
                 })
 
             # Route to appropriate handler based on task type
@@ -377,9 +283,12 @@ class ModelManagerService:
         }
         model_type = task_to_model_type.get(task_type, task_type)
 
+        # Estimate model memory early - needed for both scaling and creation paths
+        model_memory_gb = self._estimate_model_memory(model_name, model_type)
+
         # Get default keep_alive from settings (in seconds, convert to minutes)
         if keep_alive is None:
-            keep_alive_seconds = self.config.get("worker_pool.model_idle_timeout", 300)
+            keep_alive_seconds = self.settings.worker_pool.model_idle_timeout
             keep_alive = keep_alive_seconds // 60  # Convert to minutes
 
         keep_alive_seconds = keep_alive * 60  # Convert minutes to seconds for storage
@@ -422,9 +331,7 @@ class ModelManagerService:
         # Workers don't exist or were stopped - create them
         self.logger.info(f"Creating workers for {model_name} on first use...")
 
-        # Store/update config in registry for future recreations
-        model_memory_gb = self._estimate_model_memory(model_name, model_type)
-
+        # Store/update config in registry for future recreations (model_memory_gb already estimated at line 381)
         if model_name not in self.model_registry:
             self.model_registry[model_name] = {
                 "model_type": model_type,
@@ -870,7 +777,8 @@ class ModelManagerService:
             
             # Create model reference and store
             model_data = load_result.data
-            model_ref = ModelReference(model_name, model_data, self.config)
+            config = self.settings.model_dump()
+            model_ref = ModelReference(model_name, model_data, config)
             self._loaded_models[model_name] = model_ref
             model_ref.add_reference()
             
@@ -1114,123 +1022,6 @@ class ModelManagerService:
         else:
             return 0.5  # Conservative default for unknown models
 
-    async def register_model_legacy(self, model_name: str, model_config: 'ModelRequirement', requester_module_id: str) -> Result:
-        """LEGACY: Register a model requirement from a module using ModelRequirement schema.
-
-        This method is deprecated - use register_model() instead.
-
-        Args:
-            model_name: Unique identifier for this model
-            model_config: ModelRequirement schema with model configuration
-            requester_module_id: Module ID requesting the model
-
-        Returns:
-            Result with registration status
-        """
-        try:
-            # Import here to avoid circular imports
-            from .schemas import ModelRequirement
-
-            # Validate model_config is ModelRequirement
-            if not isinstance(model_config, ModelRequirement):
-                return Result.error(
-                    code="INVALID_MODEL_CONFIG",
-                    message="model_config must be a ModelRequirement instance"
-                )
-
-            # Check if model_name already exists
-            if model_name in self.model_registry:
-                # Model already registered - add requester if not already in set
-                registration = self.model_registry[model_name]
-                registration["requesters"].add(requester_module_id)
-                registration["reference_count"] += 1
-
-                self.logger.info(f"Model {model_name} already registered, added requester: {requester_module_id}")
-
-                return Result.success(data={
-                    "registered": True,
-                    "model_name": model_name,
-                    "new_registration": False,
-                    "reference_count": registration["reference_count"],
-                    "requesters": list(registration["requesters"])
-                })
-
-            # New registration
-            self.model_registry[model_name] = {
-                "config": model_config,
-                "requesters": {requester_module_id},
-                "reference_count": 1,
-                "loaded": False,
-                "load_time": None,
-                "last_accessed": None
-            }
-
-            # Add to config dict for backwards compatibility with loaders
-            # This flattens the ModelRequirement into config keys
-            self.config[f"models.{model_name}.type"] = model_config.model_type
-            self.config[f"models.{model_name}.name"] = model_config.name
-            self.config[f"models.{model_name}.device"] = model_config.device
-            self.config[f"models.{model_name}.batch_size"] = model_config.batch_size
-            if model_config.local_path:
-                self.config[f"models.{model_name}.local_path"] = model_config.local_path
-            if model_config.dimension:
-                self.config[f"models.{model_name}.dimension"] = model_config.dimension
-            if model_config.cache_embeddings is not None:
-                self.config[f"models.{model_name}.cache_embeddings"] = model_config.cache_embeddings
-            if model_config.max_input_length:
-                self.config[f"models.{model_name}.max_input_length"] = model_config.max_input_length
-            if model_config.max_output_length:
-                self.config[f"models.{model_name}.max_output_length"] = model_config.max_output_length
-
-            self.logger.info(f"Registered model {model_name} from {requester_module_id}: {model_config.model_type} - {model_config.name}")
-
-            # Preload model based on module's preload_workers setting
-            preload_workers = model_config.preload_workers
-
-            if self.worker_pool and self.worker_pool.is_enabled:
-                if preload_workers > 0:
-                    self.logger.info(f"Preloading model {model_name} to {preload_workers} worker(s)...")
-                    preload_result = await self.worker_pool.preload_model(model_name, num_workers=preload_workers)
-
-                    if preload_result.success:
-                        self.model_registry[model_name]["loaded"] = True
-                        self.model_registry[model_name]["load_time"] = time.time()
-                        workers_loaded = preload_result.data.get("workers_loaded", 0)
-                        self.logger.info(f"Model {model_name} preloaded to {workers_loaded} worker(s)")
-                    else:
-                        # Log warning but don't fail registration - model will load on first use
-                        self.logger.warning(f"Model {model_name} preload failed (will load on-demand): {preload_result.error}")
-                elif preload_workers == 0:
-                    # Download/verify only - don't load to workers
-                    self.logger.info(f"Verifying model {model_name} (download if needed, no worker preload)...")
-                    verify_result = await self.worker_pool.verify_model_download(model_name)
-
-                    if verify_result.success:
-                        self.logger.info(f"Model {model_name} verified/downloaded successfully")
-                    else:
-                        self.logger.warning(f"Model {model_name} verification failed: {verify_result.error}")
-            else:
-                # No worker pool - just log
-                if preload_workers > 0:
-                    self.logger.warning(f"Worker pool not enabled, model {model_name} will load on-demand")
-
-            return Result.success(data={
-                "registered": True,
-                "model_name": model_name,
-                "new_registration": True,
-                "model_type": model_config.model_type,
-                "model_name": model_config.name,
-                "reference_count": 1
-            })
-
-        except Exception as e:
-            self.logger.error(f"Model registration error for {model_name}: {e}")
-            return Result.error(
-                code="MODEL_REGISTRATION_ERROR",
-                message=f"Failed to register model {model_name}",
-                details={"error": str(e), "model_name": model_name}
-            )
-
     async def release_model(
         self,
         model_name: str,
@@ -1289,20 +1080,15 @@ class ModelManagerService:
                         elapsed = time.time() - start_time
                         self.logger.info(f"Queue for {model_name} drained successfully ({elapsed:.2f}s)")
 
-            self.logger.info(f"Releasing model {model_name}, stopping workers and freeing VRAM...")
-
             # Stop all workers for this model (unloads model and frees VRAM)
+            # Worker pool logging handles all details; we only log errors here
             if self.worker_pool and self.worker_pool.is_enabled:
                 stop_result = await self.worker_pool.stop_workers_for_model(model_name)
-                if stop_result.success:
-                    workers_stopped = stop_result.data.get("workers_stopped", 0)
-                    self.logger.info(f"Stopped {workers_stopped} worker(s) for model {model_name}")
-                else:
+                if not stop_result.success:
                     self.logger.error(f"Failed to stop workers for {model_name}: {stop_result.error}")
 
             # Remove registry entry completely (config comes from next request anyway)
             del self.model_registry[model_name]
-            self.logger.info(f"Model {model_name} released and registry entry removed, VRAM freed")
 
             return Result.success(data={
                 "released": True,

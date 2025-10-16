@@ -3,7 +3,8 @@ modules/core/model_manager/settings.py
 Pydantic settings model for core.model_manager module.
 
 Defines comprehensive type-safe settings for AI model management including
-embedding models, T5 models, worker pools, caching, and GPU configuration.
+worker pools, caching, and GPU configuration. Models are loaded on-demand
+from HuggingFace, not pre-configured.
 """
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -24,93 +25,7 @@ class GlobalDevicePreference(str, Enum):
     GPU = "gpu"
     CPU = "cpu"
 
-class LoadBalancingStrategy(str, Enum):
-    ROUND_ROBIN = "round_robin"
-    LEAST_BUSY = "least_busy"
-
-class ModelType(str, Enum):
-    EMBEDDING = "embedding"
-    TEXT2TEXT = "text2text"
-
 # Sub-models for nested configurations
-class EmbeddingModelConfig(BaseModel):
-    """Configuration for embedding models."""
-    model_config = ConfigDict(env_prefix="CORE_MODEL_MANAGER_MODELS_EMBEDDING_")
-    
-    type: ModelType = Field(
-        default=ModelType.EMBEDDING,
-        description="Model type for embedding generation"
-    )
-    name: str = Field(
-        default="mixedbread-ai/mxbai-embed-large-v1",
-        description="Hugging Face model name or path"
-    )
-    local_path: str = Field(
-        default="./models/mixedbread/snapshots/db9d1fe0f31addb4978201b2bf3e577f3f8900d2",
-        description="Local model path for cached models"
-    )
-    dimension: int = Field(
-        default=1024,
-        ge=1,
-        le=4096,
-        description="Embedding vector dimension"
-    )
-    device: DeviceType = Field(
-        default=DeviceType.AUTO,
-        description="Device for embedding model execution"
-    )
-    batch_size: int = Field(
-        default=32,
-        ge=1,
-        le=128,
-        description="Batch size for embedding generation"
-    )
-    shared: bool = Field(
-        default=True,
-        description="Allow sharing embedding model between modules"
-    )
-    cache_embeddings: bool = Field(
-        default=True,
-        description="Enable caching of generated embeddings"
-    )
-
-class T5SummarizerConfig(BaseModel):
-    """Configuration for T5 summarization models."""
-    model_config = ConfigDict(env_prefix="CORE_MODEL_MANAGER_MODELS_T5_SUMMARIZER_")
-    
-    type: ModelType = Field(
-        default=ModelType.TEXT2TEXT,
-        description="Model type for text-to-text generation"
-    )
-    name: str = Field(
-        default="google/flan-t5-large",
-        description="Hugging Face model name or path"
-    )
-    local_path: str = Field(
-        default="./models/t5",
-        description="Local model path for cached models"
-    )
-    device: DeviceType = Field(
-        default=DeviceType.AUTO,
-        description="Device for T5 model execution"
-    )
-    shared: bool = Field(
-        default=True,
-        description="Allow sharing T5 model between modules"
-    )
-    max_input_length: int = Field(
-        default=512,
-        ge=1,
-        le=2048,
-        description="Maximum input sequence length"
-    )
-    max_output_length: int = Field(
-        default=128,
-        ge=1,
-        le=512,
-        description="Maximum output sequence length"
-    )
-
 class SharingConfig(BaseModel):
     """Configuration for model sharing and lifecycle management."""
     model_config = ConfigDict(env_prefix="CORE_MODEL_MANAGER_SHARING_")
@@ -204,35 +119,9 @@ class WorkerPoolConfig(BaseModel):
         le=600,
         description="Individual worker timeout in seconds"
     )
-    preload_embeddings: bool = Field(
-        default=False,
-        description="Preload embedding models on worker startup"
-    )
-    auto_scaling: bool = Field(
-        default=False,
-        description="Enable automatic worker scaling"
-    )
-    load_balancing: LoadBalancingStrategy = Field(
-        default=LoadBalancingStrategy.ROUND_ROBIN,
-        description="Load balancing strategy for task distribution"
-    )
     require_gpu: bool = Field(
         default=False,
         description="Require GPU availability, fail if CPU-only"
-    )
-    model_priorities: Dict[str, int] = Field(
-        default={
-            "embedding": 10,
-            "t5_summarizer": 5
-        },
-        description="Model priority levels for resource allocation"
-    )
-    device_affinity: Dict[str, List[str]] = Field(
-        default={
-            "embedding": ["cuda:0", "cuda:1"],
-            "t5_summarizer": ["cuda:1"]
-        },
-        description="Preferred devices for specific model types"
     )
     memory_threshold: float = Field(
         default=0.8,
@@ -265,17 +154,13 @@ class ModelManagerSettings(BaseModel):
             "description": "Configuration for AI model management and GPU resources"
         }
     )
-    
-    # Nested model configurations
-    embedding_model: EmbeddingModelConfig = Field(
-        default_factory=EmbeddingModelConfig,
-        description="Embedding model configuration"
+
+    # Model storage configuration
+    models_cache_dir: str = Field(
+        default="models",
+        description="Directory within data/ for caching downloaded models"
     )
-    t5_summarizer: T5SummarizerConfig = Field(
-        default_factory=T5SummarizerConfig,
-        description="T5 summarization model configuration"
-    )
-    
+
     # Global hardware settings
     device_preference: GlobalDevicePreference = Field(
         default=GlobalDevicePreference.AUTO,
@@ -319,5 +204,5 @@ class ModelManagerSettings(BaseModel):
         default=True,
         description="Monitor GPU and system memory usage"
     )
-    
+
     # Note: Configuration moved to model_config above for Pydantic v2 compatibility

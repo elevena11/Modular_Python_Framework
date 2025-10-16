@@ -116,18 +116,6 @@ from .settings import ModelManagerSettings
         tags=["status", "workers", "monitoring"]
     ),
     ServiceMethod(
-        name="scale_workers",
-        description="Scale the worker pool to target number of workers",
-        params=[
-            ServiceParam("target_count", int, required=True, description="Target number of workers")
-        ],
-        returns=ServiceReturn("Result", "Result indicating scaling operation success"),
-        examples=[
-            ServiceExample("scale_workers(4)", "Result.success(data={'scaled_to': 4, 'previous_count': 2})"),
-        ],
-        tags=["scaling", "workers", "management"]
-    ),
-    ServiceMethod(
         name="release_model",
         description="Release a loaded model to free memory",
         params=[

@@ -605,6 +605,81 @@ await model_manager.task(
 
 ---
 
+### drop_model_queue()
+
+**Forcefully drop all pending tasks for a model (emergency operation).**
+
+Use this when a large batch was submitted by mistake and needs immediate cancellation. All queued tasks are discarded and callers are notified of the cancellation.
+
+```python
+await model_manager.drop_model_queue(
+    model_name: str,
+    reason: str = "Manual drop"
+) -> Result
+```
+
+**Parameters**:
+- `model_name`: Model identifier whose queue to drop
+- `reason`: Reason for dropping (for logging/audit trail)
+
+**Returns**: Result with:
+- `dropped`: Number of tasks dropped from queue
+- `futures_cancelled`: Number of futures cancelled (callers notified)
+- `model_name`: Model affected
+- `reason`: Reason provided
+
+**Behavior**:
+- Removes all pending tasks from the model's queue
+- Cancels futures waiting for results with error
+- Callers receive `RuntimeError` with cancellation reason
+- Workers continue running and ready for new tasks
+- Does NOT release the model
+
+**Example**:
+
+```python
+# Large batch submitted by mistake
+for i in range(1000):
+    await model_manager.task(
+        task_data=["text"],
+        task_type="embedding",
+        model_name="model-name"
+    )
+# Oops! Need to cancel all those tasks immediately
+
+# Emergency drop
+result = await model_manager.drop_model_queue(
+    model_name="model-name",
+    reason="User cancelled large batch"
+)
+
+if result.success:
+    print(f"Dropped {result.data['dropped']} pending tasks")
+    print(f"Cancelled {result.data['futures_cancelled']} futures")
+
+# Model still loaded and ready
+await model_manager.task(
+    task_data=["normal request"],
+    task_type="embedding",
+    model_name="model-name"
+)
+```
+
+**Common Use Cases**:
+- User clicks "Cancel All" in UI
+- Batch job submitted with wrong parameters
+- Emergency stop of runaway task queue
+- Testing queue cancellation behavior
+
+**Comparison with release_model()**:
+
+| Operation | Drops Queue | Releases Model | Use Case |
+|-----------|-------------|----------------|----------|
+| `drop_model_queue()` | Yes | No | Cancel pending tasks, keep model loaded |
+| `release_model()` | Yes (pending done first) | Yes | Free VRAM and stop everything |
+
+---
+
 ## Configuration
 
 ### Model Manager Settings

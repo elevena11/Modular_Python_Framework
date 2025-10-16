@@ -9,6 +9,7 @@ import logging
 from typing import Dict, Any
 from .base import BaseLoader
 from core.error_utils import Result
+from core.paths import ensure_data_path
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.loaders"
@@ -88,11 +89,19 @@ class EmbeddingLoader(BaseLoader):
                 self._setup_cuda_device(device)
 
             self.logger.info(f"Loading SentenceTransformer model {model_path_or_name} on {device}")
-            
-            # Load SentenceTransformer model
+
+            # Load SentenceTransformer model with framework's cache directory
             from sentence_transformers import SentenceTransformer
 
-            model = SentenceTransformer(model_path_or_name, device=device)
+            # Get cache directory from config (defaults to "models" if not set)
+            cache_dir_name = self.config.get("models_cache_dir", "models")
+            models_cache_dir = ensure_data_path(cache_dir_name)
+
+            model = SentenceTransformer(
+                model_path_or_name,
+                device=device,
+                cache_folder=models_cache_dir
+            )
 
             # Get model dimension from the model's architecture
             try:
@@ -177,10 +186,15 @@ class EmbeddingLoader(BaseLoader):
             try:
                 from huggingface_hub import snapshot_download
 
+                # Get cache directory from config (defaults to "models" if not set)
+                cache_dir_name = self.config.get("models_cache_dir", "models")
+                models_cache_dir = ensure_data_path(cache_dir_name)
+
                 # First, try to load from cache only (no network)
                 try:
                     cache_dir = snapshot_download(
                         repo_id=model_path_or_name,
+                        cache_dir=models_cache_dir,
                         local_files_only=True,  # Check cache only, no download
                     )
                     self.logger.info(f"Model {model_id} found in cache at {cache_dir}")
@@ -195,10 +209,11 @@ class EmbeddingLoader(BaseLoader):
 
                 except Exception:
                     # Not in cache, need to download
-                    self.logger.info(f"Model {model_path_or_name} not in cache, downloading...")
+                    self.logger.info(f"Model {model_path_or_name} not in cache, downloading to {models_cache_dir}...")
 
                     cache_dir = snapshot_download(
                         repo_id=model_path_or_name,
+                        cache_dir=models_cache_dir,
                         local_files_only=False,  # Allow download
                         resume_download=True,    # Resume if interrupted
                     )
