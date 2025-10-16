@@ -73,13 +73,15 @@ class EmbeddingLoader(BaseLoader):
             model_name = self._get_model_config(model_id, "name")
 
             # Use local_path if available, otherwise use name (HuggingFace path)
-            model_path_or_name = model_path if model_path else model_name
-
-            if not model_path_or_name:
-                return Result.error(
-                    code="MODEL_PATH_NOT_CONFIGURED",
-                    message=f"Neither local_path nor name configured for {model_id}"
-                )
+            # With new simplified API, model_id IS the HuggingFace model name if no config exists
+            if model_path:
+                model_path_or_name = model_path
+            elif model_name:
+                model_path_or_name = model_name
+            else:
+                # New simplified API: model_id is the HuggingFace model name directly
+                model_path_or_name = model_id
+                self.logger.info(f"Using model_id as HuggingFace model name: {model_id}")
 
             # Set up CUDA device if needed
             if device.startswith("cuda"):
@@ -149,13 +151,15 @@ class EmbeddingLoader(BaseLoader):
             model_name = self._get_model_config(model_id, "name")
 
             # Use local_path if available, otherwise use name (HuggingFace path)
-            model_path_or_name = model_path if model_path else model_name
-
-            if not model_path_or_name:
-                return Result.error(
-                    code="MODEL_PATH_NOT_CONFIGURED",
-                    message=f"Neither local_path nor name configured for {model_id}"
-                )
+            # With new simplified API, model_id IS the HuggingFace model name if no config exists
+            if model_path:
+                model_path_or_name = model_path
+            elif model_name:
+                model_path_or_name = model_name
+            else:
+                # New simplified API: model_id is the HuggingFace model name directly
+                model_path_or_name = model_id
+                self.logger.info(f"Using model_id as HuggingFace model name: {model_id}")
 
             # Check if this is a local path or HuggingFace model
             from pathlib import Path

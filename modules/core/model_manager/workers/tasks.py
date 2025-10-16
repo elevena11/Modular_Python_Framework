@@ -14,7 +14,7 @@ class WorkerTask:
     """Task for worker processing."""
     task_id: str
     task_type: str  # "embedding", "text_generation"
-    model_id: str
+    model_name: str  # HuggingFace model name (e.g., "sentence-transformers/all-MiniLM-L6-v2")
     input_data: Any
     metadata: Dict[str, Any]
     created_at: float

@@ -53,25 +53,40 @@ class LoaderFactory:
         self.logger.warning(f"No loader found for model {model_id}")
         return None
     
-    async def load_model(self, model_id: str, device: str) -> Result:
+    async def load_model(self, model_id: str, device: str, model_type: Optional[str] = None) -> Result:
         """Load a model using the appropriate loader.
 
         Args:
-            model_id: Model identifier
+            model_id: Model identifier (HuggingFace name)
             device: Target device
+            model_type: Optional model type to explicitly select loader
+                       If provided, uses get_loader_by_type() instead of auto-detection
 
         Returns:
             Result with loaded model or error
         """
         try:
-            # Find appropriate loader
-            loader = self.get_loader_for_model(model_id)
-            if not loader:
-                return Result.error(
-                    code="NO_LOADER_FOUND",
-                    message=f"No loader available for model {model_id}",
-                    details={"available_loaders": [l.__class__.__name__ for l in self._loaders]}
-                )
+            # If model_type provided, use it to select loader explicitly
+            if model_type:
+                loader = self.get_loader_by_type(model_type)
+                if not loader:
+                    return Result.error(
+                        code="NO_LOADER_FOR_TYPE",
+                        message=f"No loader available for model_type '{model_type}'",
+                        details={
+                            "model_type": model_type,
+                            "available_types": [l.get_model_type() for l in self._loaders]
+                        }
+                    )
+            else:
+                # Fall back to auto-detection (legacy support)
+                loader = self.get_loader_for_model(model_id)
+                if not loader:
+                    return Result.error(
+                        code="NO_LOADER_FOUND",
+                        message=f"No loader available for model {model_id}",
+                        details={"available_loaders": [l.__class__.__name__ for l in self._loaders]}
+                    )
 
             # Load model using selected loader
             self.logger.info(f"Loading model {model_id} on {device} using {loader.__class__.__name__}")

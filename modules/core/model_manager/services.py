@@ -29,6 +29,7 @@ os.environ["TRANSFORMERS_CACHE"] = str(MODELS_DIR / "transformers")
 os.environ["SENTENCE_TRANSFORMERS_HOME"] = str(MODELS_DIR / "sentence-transformers")
 
 # NOW import everything else
+import asyncio
 import logging
 import time
 import uuid
@@ -76,7 +77,10 @@ class ModelManagerService:
 
         # Initialization state
         self._initialized = False
-        
+
+        # Background task for idle model cleanup
+        self._idle_checker_task = None
+
         self.logger.info("Model Manager Service initialized with modular architecture")
     
     def setup_infrastructure(self):
@@ -104,7 +108,11 @@ class ModelManagerService:
                 pool_result = await self.worker_pool.initialize()
                 if not pool_result.success:
                     self.logger.warning(f"Worker pool initialization failed: {pool_result.error}")
-            
+
+            # Start background task for idle model cleanup
+            self._idle_checker_task = asyncio.create_task(self._idle_model_checker())
+            self.logger.info("Started idle model checker background task")
+
             self._initialized = True
             self.logger.info(f"{MODULE_ID}: Service initialization completed successfully")
             return Result.success(data={"initialized": True})
@@ -114,8 +122,7 @@ class ModelManagerService:
                 module_id=MODULE_ID,
                 error_type="SERVICE_INITIALIZATION_FAILED",
                 details=f"Service initialization failed: {e}",
-                location="ModelManagerService.initialize()",
-                context={"error": str(e)}
+                location="ModelManagerService.initialize()"
             ))
             return Result.error(
                 code="SERVICE_INIT_FAILED",
@@ -227,13 +234,310 @@ class ModelManagerService:
         
         self.logger.info("Modular components initialized successfully")
     
-    async def generate_embeddings(self, texts: Union[str, List[str]], model_id: str = "embedding") -> Result:
-        """Generate embeddings for text(s) using worker pool or direct loading.
-        
+    async def task(
+        self,
+        task_data: Optional[Any],
+        task_type: str,
+        model_name: str,
+        num_workers: int = 1,
+        device: str = "gpu",
+        keep_alive: Optional[int] = None,
+        **kwargs
+    ) -> Result:
+        """Unified task processing API - single entry point for all model operations.
+
+        This is the primary API for using models. All configuration is passed with the request,
+        making it self-contained. Workers are auto-created on first use and auto-recreated
+        if they were previously stopped.
+
+        Args:
+            task_data: Data to process (texts for embeddings, text for generation, etc.)
+                      Set to None for pre-loading only (loads model without processing)
+            task_type: Type of task - "embedding" or "text_generation"
+            model_name: HuggingFace model name (e.g., "mixedbread-ai/mxbai-embed-large-v1")
+            num_workers: Number of workers to create (default: 1)
+                        - For device="gpu": Suggestion, capped by available GPUs
+                        - For device="cpu": Exact count created
+            device: "gpu" (default) or "cpu"
+            keep_alive: Minutes of inactivity before auto-release (default from settings)
+                       Auto-release frees VRAM after inactivity. Next use recreates workers.
+            **kwargs: Additional task-specific parameters (e.g., max_length for text generation)
+
+        Returns:
+            Result with task output (or confirmation if task_data=None for pre-load)
+
+        Examples:
+            # Regular embedding task
+            await model_manager.task(
+                task_data=["hello", "world"],
+                task_type="embedding",
+                model_name="mixedbread-ai/mxbai-embed-large-v1",
+                num_workers=2,
+                device="gpu"
+            )
+
+            # Pre-load model with 30 minute keep-alive
+            await model_manager.task(
+                task_data=None,  # Pre-load only, no processing
+                task_type="embedding",
+                model_name="mixedbread-ai/mxbai-embed-large-v1",
+                num_workers=2,
+                device="gpu",
+                keep_alive=30  # Stay loaded for 30 minutes of inactivity
+            )
+
+            # Text generation with custom keep_alive
+            await model_manager.task(
+                task_data="Translate this text",
+                task_type="text_generation",
+                model_name="google-t5/t5-large",
+                num_workers=1,
+                device="gpu",
+                keep_alive=10,  # Custom 10 minute timeout
+                max_length=128
+            )
+        """
+        try:
+            if not self._initialized:
+                return Result.error(
+                    code="SERVICE_NOT_INITIALIZED",
+                    message="Model manager service not initialized"
+                )
+
+            # Validate task type
+            valid_types = ["embedding", "text_generation"]
+            if task_type not in valid_types:
+                return Result.error(
+                    code="INVALID_TASK_TYPE",
+                    message=f"Invalid task_type '{task_type}'. Must be one of: {valid_types}",
+                    details={"task_type": task_type, "valid_types": valid_types}
+                )
+
+            # Ensure workers exist for this model (auto-create or auto-recreate)
+            await self._ensure_model_workers(
+                model_name=model_name,
+                task_type=task_type,
+                num_workers=num_workers,
+                device=device,
+                keep_alive=keep_alive
+            )
+
+            # If task_data is None, this is a pre-load request - just return success
+            if task_data is None:
+                return Result.success(data={
+                    "preloaded": True,
+                    "model_name": model_name,
+                    "workers": num_workers,
+                    "device": device,
+                    "keep_alive_minutes": keep_alive or (self.config.get("worker_pool.model_idle_timeout", 300) // 60)
+                })
+
+            # Route to appropriate handler based on task type
+            if task_type == "embedding":
+                return await self._process_embedding_task(task_data, model_name, **kwargs)
+            elif task_type == "text_generation":
+                return await self._process_text_generation_task(task_data, model_name, **kwargs)
+            else:
+                return Result.error(
+                    code="UNSUPPORTED_TASK_TYPE",
+                    message=f"Task type '{task_type}' not yet implemented"
+                )
+
+        except Exception as e:
+            self.logger.error(f"Task processing error: {e}")
+            return Result.error(
+                code="TASK_PROCESSING_ERROR",
+                message="Failed to process task",
+                details={"error": str(e), "task_type": task_type, "model_name": model_name}
+            )
+
+    async def _ensure_model_workers(
+        self,
+        model_name: str,
+        task_type: str,
+        num_workers: int,
+        device: str,
+        keep_alive: Optional[int] = None
+    ):
+        """Ensure workers exist for a model, creating or recreating them if needed.
+
+        Args:
+            model_name: Model identifier
+            task_type: Task type (determines model_type for loader)
+            num_workers: Number of workers requested
+            device: Device specification ("gpu" or "cpu")
+            keep_alive: Minutes of inactivity before auto-release (None = use default)
+        """
+        import time
+
+        # Map task_type to model_type for loader
+        task_to_model_type = {
+            "embedding": "embedding",
+            "text_generation": "text_generation"
+        }
+        model_type = task_to_model_type.get(task_type, task_type)
+
+        # Get default keep_alive from settings (in seconds, convert to minutes)
+        if keep_alive is None:
+            keep_alive_seconds = self.config.get("worker_pool.model_idle_timeout", 300)
+            keep_alive = keep_alive_seconds // 60  # Convert to minutes
+
+        keep_alive_seconds = keep_alive * 60  # Convert minutes to seconds for storage
+
+        # Check if workers exist
+        if self.worker_pool and model_name in self.worker_pool._model_workers:
+            workers = self.worker_pool._model_workers[model_name]
+            if len(workers) > 0:
+                # Workers exist and are running - update last activity time
+                if model_name in self.model_registry:
+                    self.model_registry[model_name]["last_activity"] = time.time()
+                    self.model_registry[model_name]["keep_alive_seconds"] = keep_alive_seconds
+                self.logger.debug(f"Reusing {len(workers)} existing worker(s) for {model_name}")
+                return
+
+        # Workers don't exist or were stopped - create them
+        self.logger.info(f"Creating workers for {model_name} on first use...")
+
+        # Store/update config in registry for future recreations
+        model_memory_gb = self._estimate_model_memory(model_name, model_type)
+
+        if model_name not in self.model_registry:
+            self.model_registry[model_name] = {
+                "model_type": model_type,
+                "device": device,
+                "num_workers_requested": num_workers,
+                "model_memory_gb": model_memory_gb,
+                "loaded": False,
+                "last_activity": time.time(),
+                "keep_alive_seconds": keep_alive_seconds
+            }
+        else:
+            # Update config (user might have changed num_workers or device)
+            self.model_registry[model_name].update({
+                "model_type": model_type,
+                "device": device,
+                "num_workers_requested": num_workers,
+                "model_memory_gb": model_memory_gb,
+                "last_activity": time.time(),
+                "keep_alive_seconds": keep_alive_seconds
+            })
+
+        # Create workers
+        if self.worker_pool and self.worker_pool.is_enabled:
+            ensure_result = await self.worker_pool.ensure_workers(
+                model_name=model_name,
+                num_workers=num_workers,
+                model_memory_gb=model_memory_gb,
+                device=device
+            )
+
+            if ensure_result.success:
+                workers_created = ensure_result.data.get("workers_created", 0)
+                self.model_registry[model_name]["loaded"] = workers_created > 0
+                self.logger.info(f"Created {workers_created} worker(s) for {model_name} (keep_alive: {keep_alive}min)")
+            else:
+                self.logger.error(f"Failed to create workers for {model_name}: {ensure_result.error}")
+                raise RuntimeError(f"Failed to create workers: {ensure_result.error}")
+        else:
+            raise RuntimeError("Worker pool not enabled")
+
+    async def _idle_model_checker(self):
+        """Background task that checks for idle models and auto-releases them.
+
+        Runs every 60 seconds, checks each loaded model's last_activity time,
+        and releases models that have exceeded their keep_alive timeout.
+        """
+        import time
+
+        self.logger.info("Idle model checker started")
+        check_interval = 60  # Check every 60 seconds
+
+        while self._initialized:
+            try:
+                await asyncio.sleep(check_interval)
+
+                # Check each model in registry
+                models_to_release = []
+                current_time = time.time()
+
+                for model_name, registration in list(self.model_registry.items()):
+                    if not registration.get("loaded", False):
+                        # Model not loaded, skip
+                        continue
+
+                    last_activity = registration.get("last_activity", current_time)
+                    keep_alive_seconds = registration.get("keep_alive_seconds", 300)
+                    idle_time = current_time - last_activity
+
+                    if idle_time > keep_alive_seconds:
+                        # Model has been idle too long
+                        keep_alive_minutes = keep_alive_seconds // 60
+                        models_to_release.append((model_name, idle_time, keep_alive_minutes))
+
+                # Release idle models
+                for model_name, idle_time, keep_alive_minutes in models_to_release:
+                    idle_minutes = int(idle_time // 60)
+                    self.logger.info(
+                        f"Auto-releasing idle model {model_name} "
+                        f"(idle: {idle_minutes}min, keep_alive: {keep_alive_minutes}min)"
+                    )
+
+                    release_result = await self.release_model(model_name)
+                    if release_result.success:
+                        self.logger.info(f"Successfully auto-released {model_name}, VRAM freed")
+                    else:
+                        self.logger.error(f"Failed to auto-release {model_name}: {release_result.error}")
+
+            except asyncio.CancelledError:
+                self.logger.info("Idle model checker cancelled (shutting down)")
+                break
+            except Exception as e:
+                self.logger.error(f"Error in idle model checker: {e}")
+                # Continue running even if one check fails
+
+        self.logger.info("Idle model checker stopped")
+
+    async def _process_embedding_task(self, texts: Union[str, List[str]], model_name: str, **kwargs) -> Result:
+        """Process an embedding task using worker pool.
+
         Args:
             texts: Text(s) to embed
-            model_id: Model identifier for embeddings
-            
+            model_name: Model name
+            **kwargs: Additional parameters
+
+        Returns:
+            Result with embeddings
+        """
+        # Check cache first if enabled
+        cache_result = await self.embedding_cache.get_embeddings(texts, model_name)
+        if cache_result.success:
+            self.logger.debug(f"Cache hit for {len(texts) if isinstance(texts, list) else 1} text(s)")
+            return cache_result
+
+        # Use worker pool
+        return await self._generate_embeddings_worker_pool(texts, model_name)
+
+    async def _process_text_generation_task(self, input_text: str, model_name: str, **kwargs) -> Result:
+        """Process a text generation task using worker pool.
+
+        Args:
+            input_text: Input text
+            model_name: Model name
+            **kwargs: Additional parameters (e.g., max_length)
+
+        Returns:
+            Result with generated text
+        """
+        # Use worker pool
+        return await self._generate_text_worker_pool(input_text, model_name, kwargs)
+
+    async def generate_embeddings(self, texts: Union[str, List[str]], model_name: str) -> Result:
+        """Generate embeddings for text(s) using worker pool or direct loading.
+
+        Args:
+            texts: Text(s) to embed
+            model_name: Model name (HuggingFace name, e.g., "sentence-transformers/all-MiniLM-L6-v2")
+
         Returns:
             Result with embedding data
         """
@@ -243,35 +547,35 @@ class ModelManagerService:
                     code="SERVICE_NOT_INITIALIZED",
                     message="Model manager service not initialized"
                 )
-            
+
             # Check cache first if enabled
-            cache_result = await self.embedding_cache.get_embeddings(texts, model_id)
+            cache_result = await self.embedding_cache.get_embeddings(texts, model_name)
             if cache_result.success:
                 self.logger.debug(f"Cache hit for {len(texts) if isinstance(texts, list) else 1} text(s)")
                 return cache_result
-            
+
             # Use worker pool if available
             if self.worker_pool and self.worker_pool.is_enabled:
-                return await self._generate_embeddings_worker_pool(texts, model_id)
+                return await self._generate_embeddings_worker_pool(texts, model_name)
             else:
                 # Fallback to direct model loading
-                return await self._generate_embeddings_direct(texts, model_id)
-                
+                return await self._generate_embeddings_direct(texts, model_name)
+
         except Exception as e:
             self.logger.error(f"Embedding generation error: {e}")
             return Result.error(
                 code="EMBEDDING_GENERATION_ERROR",
                 message="Failed to generate embeddings",
-                details={"error": str(e), "model_id": model_id}
+                details={"error": str(e), "model_name": model_name}
             )
     
-    async def _generate_embeddings_worker_pool(self, texts: Union[str, List[str]], model_id: str) -> Result:
+    async def _generate_embeddings_worker_pool(self, texts: Union[str, List[str]], model_name: str) -> Result:
         """Generate embeddings using worker pool.
-        
+
         Args:
             texts: Text(s) to embed
-            model_id: Model identifier
-            
+            model_name: Model name (HuggingFace name, e.g., "sentence-transformers/all-MiniLM-L6-v2")
+
         Returns:
             Result with embedding data
         """
@@ -280,12 +584,12 @@ class ModelManagerService:
             task = WorkerTask(
                 task_id=task_id,
                 task_type="embedding",
-                model_id=model_id,
+                model_name=model_name,
                 input_data=texts,
                 metadata={},
                 created_at=time.time()
             )
-            
+
             # Submit task to worker pool (returns future immediately)
             future = await self.worker_pool.submit_task(task)
 
@@ -294,11 +598,11 @@ class ModelManagerService:
 
             if result and result.success:
                 # Cache the results
-                await self.embedding_cache.cache_embeddings(texts, result.data["embeddings"], model_id)
+                await self.embedding_cache.cache_embeddings(texts, result.data["embeddings"], model_name)
 
                 return Result.success(data={
                     "embeddings": result.data["embeddings"],
-                    "model_id": model_id,
+                    "model_name": model_name,
                     "cached": False,
                     "processing_time": result.processing_time,
                     "worker_id": result.worker_id,
@@ -319,19 +623,19 @@ class ModelManagerService:
                 details={"error": str(e)}
             )
     
-    async def _generate_embeddings_direct(self, texts: Union[str, List[str]], model_id: str) -> Result:
+    async def _generate_embeddings_direct(self, texts: Union[str, List[str]], model_name: str) -> Result:
         """Generate embeddings using direct model loading.
         
         Args:
             texts: Text(s) to embed
-            model_id: Model identifier
+            model_name: Model identifier
             
         Returns:
             Result with embedding data
         """
         try:
             # Get or load model
-            model_result = await self._get_or_load_model(model_id, "cuda:0")
+            model_result = await self._get_or_load_model(model_name, "cuda:0")
             if not model_result.success:
                 return model_result
             
@@ -351,11 +655,11 @@ class ModelManagerService:
             processing_time = time.time() - start_time
             
             # Cache the results
-            await self.embedding_cache.cache_embeddings(texts, result_embeddings, model_id)
+            await self.embedding_cache.cache_embeddings(texts, result_embeddings, model_name)
             
             return Result.success(data={
                 "embeddings": result_embeddings,
-                "model_id": model_id,
+                "model_name": model_name,
                 "cached": False,
                 "processing_time": processing_time,
                 "dimension": len(result_embeddings[0] if isinstance(result_embeddings[0], list) else result_embeddings)
@@ -369,12 +673,12 @@ class ModelManagerService:
                 details={"error": str(e)}
             )
     
-    async def generate_text(self, input_text: str, model_id: str = "t5_summarizer", **kwargs) -> Result:
+    async def generate_text(self, input_text: str, model_name: str = "t5_summarizer", **kwargs) -> Result:
         """Generate text using specified model.
         
         Args:
             input_text: Input text for generation
-            model_id: Model identifier for text generation
+            model_name: Model identifier for text generation
             **kwargs: Additional generation parameters
             
         Returns:
@@ -389,36 +693,39 @@ class ModelManagerService:
             
             # Use worker pool if available
             if self.worker_pool and self.worker_pool.is_enabled:
-                return await self._generate_text_worker_pool(input_text, model_id, kwargs)
+                return await self._generate_text_worker_pool(input_text, model_name, kwargs)
             else:
                 # Fallback to direct model loading
-                return await self._generate_text_direct(input_text, model_id, kwargs)
+                return await self._generate_text_direct(input_text, model_name, kwargs)
                 
         except Exception as e:
             self.logger.error(f"Text generation error: {e}")
             return Result.error(
                 code="TEXT_GENERATION_ERROR",
                 message="Failed to generate text",
-                details={"error": str(e), "model_id": model_id}
+                details={"error": str(e), "model_name": model_name}
             )
     
-    async def _generate_text_worker_pool(self, input_text: str, model_id: str, params: Dict[str, Any]) -> Result:
+    async def _generate_text_worker_pool(self, input_text: str, model_name: str, params: Dict[str, Any]) -> Result:
         """Generate text using worker pool.
-        
+
         Args:
             input_text: Input text
-            model_id: Model identifier
+            model_name: Model name (HuggingFace name)
             params: Generation parameters
-            
+
         Returns:
             Result with generated text
         """
         try:
+            # model_name is actually the model_name in new API
+            model_name = model_name
+
             task_id = str(uuid.uuid4())
             task = WorkerTask(
                 task_id=task_id,
                 task_type="text_generation",
-                model_id=model_id,
+                model_name=model_name,
                 input_data=input_text,
                 metadata=params,
                 created_at=time.time()
@@ -433,7 +740,7 @@ class ModelManagerService:
             if result and result.success:
                 return Result.success(data={
                     "generated_text": result.data["generated_text"],
-                    "model_id": model_id,
+                    "model_name": model_name,
                     "processing_time": result.processing_time,
                     "worker_id": result.worker_id,
                     "input_length": result.data.get("input_length", len(input_text)),
@@ -454,12 +761,12 @@ class ModelManagerService:
                 details={"error": str(e)}
             )
     
-    async def _generate_text_direct(self, input_text: str, model_id: str, params: Dict[str, Any]) -> Result:
+    async def _generate_text_direct(self, input_text: str, model_name: str, params: Dict[str, Any]) -> Result:
         """Generate text using direct model loading.
         
         Args:
             input_text: Input text
-            model_id: Model identifier
+            model_name: Model identifier
             params: Generation parameters
             
         Returns:
@@ -467,7 +774,7 @@ class ModelManagerService:
         """
         try:
             # Get or load model
-            model_result = await self._get_or_load_model(model_id, "cuda:0")
+            model_result = await self._get_or_load_model(model_name, "cuda:0")
             if not model_result.success:
                 return model_result
             
@@ -501,7 +808,7 @@ class ModelManagerService:
             
             return Result.success(data={
                 "generated_text": generated_text,
-                "model_id": model_id,
+                "model_name": model_name,
                 "processing_time": processing_time,
                 "input_length": len(input_text),
                 "output_length": len(generated_text)
@@ -515,11 +822,11 @@ class ModelManagerService:
                 details={"error": str(e)}
             )
     
-    async def _get_or_load_model(self, model_id: str, device: str) -> Result:
+    async def _get_or_load_model(self, model_name: str, device: str) -> Result:
         """Get existing model or load new one using loader factory.
         
         Args:
-            model_id: Model identifier
+            model_name: Model identifier
             device: Target device
             
         Returns:
@@ -527,57 +834,274 @@ class ModelManagerService:
         """
         try:
             # Check if model is already loaded
-            if model_id in self._loaded_models:
-                model_ref = self._loaded_models[model_id]
+            if model_name in self._loaded_models:
+                model_ref = self._loaded_models[model_name]
                 model_ref.add_reference()
                 return Result.success(data=model_ref.model_instance)
             
             # Load model using loader factory
-            load_result = await self.loader_factory.load_model(model_id, device)
+            load_result = await self.loader_factory.load_model(model_name, device)
             if not load_result.success:
                 return load_result
             
             # Create model reference and store
             model_data = load_result.data
-            model_ref = ModelReference(model_id, model_data, self.config)
-            self._loaded_models[model_id] = model_ref
+            model_ref = ModelReference(model_name, model_data, self.config)
+            self._loaded_models[model_name] = model_ref
             model_ref.add_reference()
             
-            self.logger.info(f"Loaded and registered model: {model_id}")
+            self.logger.info(f"Loaded and registered model: {model_name}")
             return Result.success(data=model_data)
             
         except Exception as e:
             self.logger.error(f"Model loading error: {e}")
             return Result.error(
                 code="MODEL_LOAD_ERROR",
-                message=f"Failed to load model {model_id}",
+                message=f"Failed to load model {model_name}",
                 details={"error": str(e), "device": device}
             )
-    
-    async def register_model(self, model_id: str, model_config: 'ModelRequirement', requester_module_id: str) -> Result:
-        """Register a model requirement from a module.
 
-        Modules call this during initialization to register their model needs.
-        The model is downloaded/verified at registration time to catch issues early.
+    async def register_model(
+        self,
+        model_name: str,
+        model_type: str,
+        num_workers: int = 1,
+        device: str = "gpu",
+        requester_module_id: Optional[str] = None
+    ) -> Result:
+        """Register a model and create dedicated workers for it.
+
+        This is the new simplified registration API. Workers are model-dedicated:
+        they load one model on startup and never switch.
 
         Args:
-            model_id: Unique identifier for this model
+            model_name: HuggingFace model name (e.g., "sentence-transformers/all-MiniLM-L6-v2")
+            model_type: Model type - REQUIRED, determines which loader to use
+                       - "embedding": For sentence transformers, embedding models
+                       - "text_generation": For T5, GPT, LLaMA, etc.
+            num_workers: Number of workers to create (default: 1)
+                        - For device="gpu": Suggestion, capped by available GPUs
+                        - For device="cpu": Exact count created
+            device: "gpu" (default) or "cpu"
+                   - "gpu": Fails if no GPU available (safe default)
+                   - "cpu": Explicitly uses CPU (developer responsibility)
+            requester_module_id: Optional module ID requesting the model (for tracking)
+
+        Returns:
+            Result with registration status and actual workers created
+
+        Examples:
+            # Minimal - model name and type (uses GPU, 1 worker)
+            await model_manager.register_model(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_type="embedding"
+            )
+
+            # Recommended - specify workers for known load patterns
+            await model_manager.register_model(
+                model_name="mixedbread-ai/mxbai-embed-large-v1",
+                model_type="embedding",
+                num_workers=2  # Capped by available GPUs
+            )
+
+            # Text generation model
+            await model_manager.register_model(
+                model_name="t5-small",
+                model_type="text_generation",
+                num_workers=1
+            )
+
+            # Explicit CPU usage
+            await model_manager.register_model(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_type="embedding",
+                device="cpu",
+                num_workers=2  # Exactly 2 CPU workers created
+            )
+        """
+        try:
+            # Check if model already registered
+            if model_name in self.model_registry:
+                # Model already registered - increment reference count
+                registration = self.model_registry[model_name]
+                if requester_module_id:
+                    registration["requesters"].add(requester_module_id)
+                registration["reference_count"] += 1
+
+                self.logger.info(
+                    f"Model {model_name} already registered with {len(registration['workers'])} worker(s), "
+                    f"added requester: {requester_module_id or 'N/A'}"
+                )
+
+                return Result.success(data={
+                    "registered": True,
+                    "model_name": model_name,
+                    "new_registration": False,
+                    "workers": len(registration["workers"]),
+                    "reference_count": registration["reference_count"],
+                    "requesters": list(registration["requesters"])
+                })
+
+            # Validate model_type
+            valid_types = ["embedding", "text_generation"]
+            if model_type not in valid_types:
+                return Result.error(
+                    code="INVALID_MODEL_TYPE",
+                    message=f"Invalid model_type '{model_type}'. Must be one of: {valid_types}",
+                    details={"model_type": model_type, "valid_types": valid_types}
+                )
+
+            # Estimate model memory requirements
+            # This is a rough estimation - actual memory will be tracked by workers
+            model_memory_gb = self._estimate_model_memory(model_name, model_type)
+
+            self.logger.info(
+                f"Registering model {model_name} (type: {model_type}, "
+                f"estimated memory: {model_memory_gb:.2f}GB, device: {device}, requested workers: {num_workers})"
+            )
+
+            # Create model registry entry
+            self.model_registry[model_name] = {
+                "model_type": model_type,
+                "device": device,
+                "requesters": {requester_module_id} if requester_module_id else set(),
+                "reference_count": 1,
+                "loaded": False,
+                "load_time": None,
+                "last_accessed": None,
+                "workers": [],  # Will be populated by worker pool
+                "num_workers_requested": num_workers,
+                "model_memory_gb": model_memory_gb
+            }
+
+            # Create workers for this model (if worker pool enabled)
+            workers_created = 0
+            actual_workers = 0
+            if self.worker_pool and self.worker_pool.is_enabled:
+                self.logger.info(f"Creating workers for model {model_name}...")
+                ensure_result = await self.worker_pool.ensure_workers(
+                    model_name=model_name,
+                    num_workers=num_workers,
+                    model_memory_gb=model_memory_gb,
+                    device=device
+                )
+
+                if ensure_result.success:
+                    workers_created = ensure_result.data.get("workers_created", 0)
+                    actual_workers = ensure_result.data.get("actual", workers_created)
+
+                    self.model_registry[model_name]["loaded"] = workers_created > 0
+                    self.model_registry[model_name]["load_time"] = time.time() if workers_created > 0 else None
+                    self.model_registry[model_name]["workers"] = workers_created
+
+                    if workers_created > 0:
+                        self.logger.info(
+                            f"Model {model_name} registered with {workers_created} worker(s) "
+                            f"(requested: {num_workers}, device: {device})"
+                        )
+                    else:
+                        self.logger.warning(f"Model {model_name} registered but no workers created")
+                else:
+                    # Worker creation failed
+                    self.logger.error(
+                        f"Failed to create workers for {model_name}: {ensure_result.error}"
+                    )
+                    # Still keep registration but mark as not loaded
+                    return Result.error(
+                        code="WORKER_CREATION_FAILED",
+                        message=f"Failed to create workers for {model_name}: {ensure_result.error}",
+                        details={
+                            "model_name": model_name,
+                            "error": ensure_result.error,
+                            "registered": True,  # Model is registered even if workers failed
+                            "workers_created": 0
+                        }
+                    )
+            else:
+                self.logger.warning(f"Worker pool not enabled, model {model_name} registered but no workers created")
+
+            return Result.success(data={
+                "registered": True,
+                "model_name": model_name,
+                "new_registration": True,
+                "model_type": model_type,
+                "device": device,
+                "workers_requested": num_workers,
+                "workers_created": workers_created,
+                "actual_workers": actual_workers,
+                "reference_count": 1,
+                "model_memory_gb": model_memory_gb
+            })
+
+        except Exception as e:
+            self.logger.error(f"Model registration error for {model_name}: {e}")
+            return Result.error(
+                code="MODEL_REGISTRATION_ERROR",
+                message=f"Failed to register model {model_name}",
+                details={"error": str(e), "model_name": model_name}
+            )
+
+    def _estimate_model_memory(self, model_name: str, model_type: str) -> float:
+        """Estimate model memory requirements in GB.
+
+        This is a rough estimation based on model name patterns.
+        Actual memory usage will be tracked by workers after loading.
+
+        Args:
+            model_name: HuggingFace model name
+            model_type: Model type
+
+        Returns:
+            Estimated memory in GB
+        """
+        model_name_lower = model_name.lower()
+
+        # Sentence transformers / embeddings (typically small)
+        if "all-minilm-l6" in model_name_lower:
+            return 0.1  # ~100MB (all-MiniLM-L6-v2 is 23M params, ~60MB)
+        elif "all-minilm-l12" in model_name_lower:
+            return 0.2  # ~200MB
+        elif "all-mpnet-base" in model_name_lower:
+            return 0.5  # ~500MB
+        elif "sentence-transformers" in model_name_lower or model_type == "embedding":
+            return 0.3  # Default for unknown sentence transformers
+
+        # Text generation models (typically larger)
+        elif "t5-small" in model_name_lower:
+            return 0.3  # ~300MB
+        elif "t5-base" in model_name_lower:
+            return 1.0  # ~1GB
+        elif "t5-large" in model_name_lower:
+            return 3.0  # ~3GB
+        elif "gpt2" in model_name_lower and "medium" not in model_name_lower and "large" not in model_name_lower:
+            return 0.5  # GPT-2 base ~500MB
+        elif "gpt2-medium" in model_name_lower:
+            return 1.5  # ~1.5GB
+        elif "gpt2-large" in model_name_lower:
+            return 3.0  # ~3GB
+        elif "7b" in model_name_lower:
+            return 14.0  # 7B models ~14GB (FP16)
+        elif "13b" in model_name_lower:
+            return 26.0  # 13B models ~26GB (FP16)
+
+        # Default estimates by type
+        elif model_type == "text_generation":
+            return 1.0  # Conservative default for text generation
+        else:
+            return 0.5  # Conservative default for unknown models
+
+    async def register_model_legacy(self, model_name: str, model_config: 'ModelRequirement', requester_module_id: str) -> Result:
+        """LEGACY: Register a model requirement from a module using ModelRequirement schema.
+
+        This method is deprecated - use register_model() instead.
+
+        Args:
+            model_name: Unique identifier for this model
             model_config: ModelRequirement schema with model configuration
             requester_module_id: Module ID requesting the model
 
         Returns:
             Result with registration status
-
-        Example:
-            from modules.core.model_manager.schemas import ModelRequirement
-
-            model_req = ModelRequirement(
-                model_type="embedding",
-                name="sentence-transformers/all-MiniLM-L6-v2",
-                dimension=384,
-                device="auto"
-            )
-            result = await model_manager.register_model("my_embeddings", model_req, "standard.my_module")
         """
         try:
             # Import here to avoid circular imports
@@ -590,25 +1114,25 @@ class ModelManagerService:
                     message="model_config must be a ModelRequirement instance"
                 )
 
-            # Check if model_id already exists
-            if model_id in self.model_registry:
+            # Check if model_name already exists
+            if model_name in self.model_registry:
                 # Model already registered - add requester if not already in set
-                registration = self.model_registry[model_id]
+                registration = self.model_registry[model_name]
                 registration["requesters"].add(requester_module_id)
                 registration["reference_count"] += 1
 
-                self.logger.info(f"Model {model_id} already registered, added requester: {requester_module_id}")
+                self.logger.info(f"Model {model_name} already registered, added requester: {requester_module_id}")
 
                 return Result.success(data={
                     "registered": True,
-                    "model_id": model_id,
+                    "model_name": model_name,
                     "new_registration": False,
                     "reference_count": registration["reference_count"],
                     "requesters": list(registration["requesters"])
                 })
 
             # New registration
-            self.model_registry[model_id] = {
+            self.model_registry[model_name] = {
                 "config": model_config,
                 "requesters": {requester_module_id},
                 "reference_count": 1,
@@ -619,56 +1143,56 @@ class ModelManagerService:
 
             # Add to config dict for backwards compatibility with loaders
             # This flattens the ModelRequirement into config keys
-            self.config[f"models.{model_id}.type"] = model_config.model_type
-            self.config[f"models.{model_id}.name"] = model_config.name
-            self.config[f"models.{model_id}.device"] = model_config.device
-            self.config[f"models.{model_id}.batch_size"] = model_config.batch_size
+            self.config[f"models.{model_name}.type"] = model_config.model_type
+            self.config[f"models.{model_name}.name"] = model_config.name
+            self.config[f"models.{model_name}.device"] = model_config.device
+            self.config[f"models.{model_name}.batch_size"] = model_config.batch_size
             if model_config.local_path:
-                self.config[f"models.{model_id}.local_path"] = model_config.local_path
+                self.config[f"models.{model_name}.local_path"] = model_config.local_path
             if model_config.dimension:
-                self.config[f"models.{model_id}.dimension"] = model_config.dimension
+                self.config[f"models.{model_name}.dimension"] = model_config.dimension
             if model_config.cache_embeddings is not None:
-                self.config[f"models.{model_id}.cache_embeddings"] = model_config.cache_embeddings
+                self.config[f"models.{model_name}.cache_embeddings"] = model_config.cache_embeddings
             if model_config.max_input_length:
-                self.config[f"models.{model_id}.max_input_length"] = model_config.max_input_length
+                self.config[f"models.{model_name}.max_input_length"] = model_config.max_input_length
             if model_config.max_output_length:
-                self.config[f"models.{model_id}.max_output_length"] = model_config.max_output_length
+                self.config[f"models.{model_name}.max_output_length"] = model_config.max_output_length
 
-            self.logger.info(f"Registered model {model_id} from {requester_module_id}: {model_config.model_type} - {model_config.name}")
+            self.logger.info(f"Registered model {model_name} from {requester_module_id}: {model_config.model_type} - {model_config.name}")
 
             # Preload model based on module's preload_workers setting
             preload_workers = model_config.preload_workers
 
             if self.worker_pool and self.worker_pool.is_enabled:
                 if preload_workers > 0:
-                    self.logger.info(f"Preloading model {model_id} to {preload_workers} worker(s)...")
-                    preload_result = await self.worker_pool.preload_model(model_id, num_workers=preload_workers)
+                    self.logger.info(f"Preloading model {model_name} to {preload_workers} worker(s)...")
+                    preload_result = await self.worker_pool.preload_model(model_name, num_workers=preload_workers)
 
                     if preload_result.success:
-                        self.model_registry[model_id]["loaded"] = True
-                        self.model_registry[model_id]["load_time"] = time.time()
+                        self.model_registry[model_name]["loaded"] = True
+                        self.model_registry[model_name]["load_time"] = time.time()
                         workers_loaded = preload_result.data.get("workers_loaded", 0)
-                        self.logger.info(f"Model {model_id} preloaded to {workers_loaded} worker(s)")
+                        self.logger.info(f"Model {model_name} preloaded to {workers_loaded} worker(s)")
                     else:
                         # Log warning but don't fail registration - model will load on first use
-                        self.logger.warning(f"Model {model_id} preload failed (will load on-demand): {preload_result.error}")
+                        self.logger.warning(f"Model {model_name} preload failed (will load on-demand): {preload_result.error}")
                 elif preload_workers == 0:
                     # Download/verify only - don't load to workers
-                    self.logger.info(f"Verifying model {model_id} (download if needed, no worker preload)...")
-                    verify_result = await self.worker_pool.verify_model_download(model_id)
+                    self.logger.info(f"Verifying model {model_name} (download if needed, no worker preload)...")
+                    verify_result = await self.worker_pool.verify_model_download(model_name)
 
                     if verify_result.success:
-                        self.logger.info(f"Model {model_id} verified/downloaded successfully")
+                        self.logger.info(f"Model {model_name} verified/downloaded successfully")
                     else:
-                        self.logger.warning(f"Model {model_id} verification failed: {verify_result.error}")
+                        self.logger.warning(f"Model {model_name} verification failed: {verify_result.error}")
             else:
                 # No worker pool - just log
                 if preload_workers > 0:
-                    self.logger.warning(f"Worker pool not enabled, model {model_id} will load on-demand")
+                    self.logger.warning(f"Worker pool not enabled, model {model_name} will load on-demand")
 
             return Result.success(data={
                 "registered": True,
-                "model_id": model_id,
+                "model_name": model_name,
                 "new_registration": True,
                 "model_type": model_config.model_type,
                 "model_name": model_config.name,
@@ -676,57 +1200,70 @@ class ModelManagerService:
             })
 
         except Exception as e:
-            self.logger.error(f"Model registration error for {model_id}: {e}")
+            self.logger.error(f"Model registration error for {model_name}: {e}")
             return Result.error(
                 code="MODEL_REGISTRATION_ERROR",
-                message=f"Failed to register model {model_id}",
-                details={"error": str(e), "model_id": model_id}
+                message=f"Failed to register model {model_name}",
+                details={"error": str(e), "model_name": model_name}
             )
 
-    async def release_model(self, model_id: str, requester_module_id: Optional[str] = None) -> Result:
-        """Release a model reference.
+    async def release_model(self, model_name: str) -> Result:
+        """Stop workers for a model and free VRAM immediately.
+
+        Removes registry entry completely. Next request will create fresh entry
+        with its own config from the task() call.
 
         Args:
-            model_id: Model identifier to release
-            requester_module_id: Module ID releasing the model (optional)
+            model_name: Model identifier to release
 
         Returns:
             Result with release status
         """
         try:
-            # Decrement registry reference count if registered
-            if model_id in self.model_registry:
-                registration = self.model_registry[model_id]
-                registration["reference_count"] = max(0, registration["reference_count"] - 1)
+            if model_name not in self.model_registry:
+                return Result.success(data={
+                    "message": f"Model {model_name} not in registry (nothing to release)"
+                })
 
-                # Remove requester if specified
-                if requester_module_id and requester_module_id in registration["requesters"]:
-                    registration["requesters"].remove(requester_module_id)
+            registration = self.model_registry[model_name]
 
-                # If no more references, consider removing from registry
-                if registration["reference_count"] == 0:
-                    del self.model_registry[model_id]
-                    self.logger.info(f"Removed model {model_id} from registry (no more references)")
+            # Check if model is already unloaded
+            if not registration.get("loaded", False):
+                self.logger.info(f"Model {model_name} already unloaded, removing registry entry")
+                del self.model_registry[model_name]
+                return Result.success(data={
+                    "released": True,
+                    "model_name": model_name,
+                    "already_unloaded": True
+                })
 
-            # Release from loaded models if loaded
-            if model_id in self._loaded_models:
-                model_ref = self._loaded_models[model_id]
-                model_ref.remove_reference()
+            self.logger.info(f"Releasing model {model_name}, stopping workers and freeing VRAM...")
 
-                # If no more references and model is idle, consider unloading
-                if model_ref.reference_count == 0 and model_ref.is_idle(300):  # 5 minute idle timeout
-                    del self._loaded_models[model_id]
-                    self.logger.info(f"Unloaded idle model: {model_id}")
-                    return Result.success(data={"unloaded": True})
+            # Stop all workers for this model (unloads model and frees VRAM)
+            if self.worker_pool and self.worker_pool.is_enabled:
+                stop_result = await self.worker_pool.stop_workers_for_model(model_name)
+                if stop_result.success:
+                    workers_stopped = stop_result.data.get("workers_stopped", 0)
+                    self.logger.info(f"Stopped {workers_stopped} worker(s) for model {model_name}")
+                else:
+                    self.logger.error(f"Failed to stop workers for {model_name}: {stop_result.error}")
 
-                return Result.success(data={"released": True, "references": model_ref.reference_count})
+            # Remove registry entry completely (config comes from next request anyway)
+            del self.model_registry[model_name]
+            self.logger.info(f"Model {model_name} released and registry entry removed, VRAM freed")
 
-            return Result.success(data={"message": f"Model {model_id} not found in loaded models"})
+            return Result.success(data={
+                "released": True,
+                "unloaded": True,
+                "model_name": model_name,
+                "vram_freed": True,
+                "registry_cleared": True
+            })
 
         except Exception as e:
             return Result.error(
                 code="MODEL_RELEASE_ERROR",
-                message=f"Failed to release model {model_id}",
+                message=f"Failed to release model {model_name}",
                 details={"error": str(e)}
             )
     
@@ -745,8 +1282,8 @@ class ModelManagerService:
             
             # Get loaded models status from direct loading
             models_status = {}
-            for model_id, model_ref in self._loaded_models.items():
-                models_status[model_id] = {
+            for model_name, model_ref in self._loaded_models.items():
+                models_status[model_name] = {
                     "reference_count": model_ref.reference_count,
                     "last_accessed": model_ref.last_accessed,
                     "created_at": model_ref.created_at,
@@ -756,10 +1293,10 @@ class ModelManagerService:
             # Add models from worker pool
             if worker_status.success and "workers_status" in worker_status.data:
                 for worker_id, worker_info in worker_status.data["workers_status"].items():
-                    if worker_info.get("current_model_id"):
-                        model_id = worker_info["current_model_id"]
-                        if model_id not in models_status:  # Don't duplicate if already in direct loading
-                            models_status[model_id] = {
+                    if worker_info.get("current_model_name"):
+                        model_name = worker_info["current_model_name"]
+                        if model_name not in models_status:  # Don't duplicate if already in direct loading
+                            models_status[model_name] = {
                                 "reference_count": 1,  # Worker pool model
                                 "last_accessed": worker_info.get("last_activity", 0),
                                 "created_at": 0,  # Not tracked for worker pool models
@@ -818,12 +1355,25 @@ class ModelManagerService:
         try:
             self.logger.info("Starting resource cleanup...")
 
+            # Stop background idle checker task
+            if self._idle_checker_task and not self._idle_checker_task.done():
+                self._idle_checker_task.cancel()
+                try:
+                    await self._idle_checker_task
+                except asyncio.CancelledError:
+                    pass
+                self.logger.info("Stopped idle model checker")
+
             # Log registered models before cleanup
             if self.model_registry:
                 self.logger.info(f"Cleaning up {len(self.model_registry)} registered model(s)")
-                for model_id, registration in self.model_registry.items():
-                    requesters = ", ".join(registration["requesters"])
-                    self.logger.info(f"  - {model_id} (requesters: {requesters})")
+                for model_name, registration in self.model_registry.items():
+                    requesters = registration.get("requesters", set())
+                    if requesters:
+                        requesters_str = ", ".join(requesters)
+                        self.logger.info(f"  - {model_name} (requesters: {requesters_str})")
+                    else:
+                        self.logger.info(f"  - {model_name}")
 
             # Clear model registry (workers will unload models automatically during shutdown)
             self.model_registry.clear()

@@ -165,7 +165,7 @@ def create_error_response(module_id: str, code: str, message: str, details: Any 
         detail=error_response
     )
 
-def error_message(module_id: str, error_type: str, details: str, location: str = None) -> str:
+def error_message(module_id: str, error_type: str, details: str, location: str = None, context: Optional[Dict[str, Any]] = None) -> str:
     """
     Create a standardized error message and log it to error logs.
 
@@ -174,9 +174,10 @@ def error_message(module_id: str, error_type: str, details: str, location: str =
         error_type (str): The base error type (e.g., "CONNECTION_FAILED").
         details (str): Error details.
         location (str, optional): Location in code (auto-detected if None). Defaults to None.
+        context (Dict[str, Any], optional): Additional structured context for the error. Defaults to None.
 
     Returns:
-        Formatted error message: "module_id_base_code - DETAILS in LOCATION"
+        Formatted error message: "module_id_base_code - DETAILS in LOCATION [context_key=value, ...]"
     """
     # Auto-detect location if not provided
     if location is None:
@@ -191,13 +192,21 @@ def error_message(module_id: str, error_type: str, details: str, location: str =
         module_id=module_id,
         code=error_type,
         message=details,
-        location=location
+        location=location,
+        context=context
     )
-    
-    # Return the formatted message using the underscore-prefixed full code
-    return f"{error_code_full} - {details} in {location}"
 
-def _log_error_to_jsonl(module_id: str, code: str, message: str, details: Any = None, location: str = None) -> None:
+    # Build the formatted message
+    message = f"{error_code_full} - {details} in {location}"
+
+    # Append context if provided
+    if context:
+        context_str = ", ".join(f"{k}={v}" for k, v in context.items())
+        message += f" [{context_str}]"
+
+    return message
+
+def _log_error_to_jsonl(module_id: str, code: str, message: str, details: Any = None, location: str = None, context: Optional[Dict[str, Any]] = None) -> None:
     """
     Log an error directly to JSONL file.
 
@@ -207,19 +216,20 @@ def _log_error_to_jsonl(module_id: str, code: str, message: str, details: Any = 
         message (str): Error message.
         details (Any, optional): Error details. Defaults to None.
         location (str, optional): Location in code where the error occurred (auto-detected if None).
+        context (Dict[str, Any], optional): Additional structured context for the error. Defaults to None.
     """
     try:
         # Get session ID from environment or generate basic one
         session_id = os.getenv("SESSION_ID", f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_unknown")
-        
+
         # Get log file path with current date
         date_str = datetime.now().strftime("%Y%m%d")
         log_file = os.path.join(ERROR_LOGS_DIR, f"{date_str}-error.jsonl")
-        
+
         # Get caller information if location not provided
         if location is None:
             location = _detect_calling_location()
-        
+
         # Create error entry - matching documented JSONL format
         timestamp = datetime.now().isoformat() + "Z"
         error_entry = {
@@ -230,7 +240,11 @@ def _log_error_to_jsonl(module_id: str, code: str, message: str, details: Any = 
             "location": location,
             "session_id": session_id
         }
-        
+
+        # Add structured context if provided (industry standard pattern)
+        if context is not None:
+            error_entry["context"] = context
+
         # Add additional details if provided
         if details is not None:
             if isinstance(details, Exception):
@@ -242,11 +256,11 @@ def _log_error_to_jsonl(module_id: str, code: str, message: str, details: Any = 
                 error_entry["additional_details"] = details
             else:
                 error_entry["additional_details"] = {"value": str(details)}
-        
+
         # Write to log file - atomic append operation
         with open(log_file, 'a', encoding='utf-8') as f:
             f.write(json.dumps(error_entry) + "\n")
-            
+
     except Exception as e:
         # Fallback to stderr if file logging fails
         print(f"ERROR: Failed to log error to JSONL: {e}", flush=True)

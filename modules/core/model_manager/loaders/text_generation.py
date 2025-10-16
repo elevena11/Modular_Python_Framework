@@ -69,12 +69,12 @@ class TextGenerationLoader(BaseLoader):
             # This is part of device-agnostic architecture
 
             # Get model name from configuration
+            # With new simplified API, model_id IS the HuggingFace model name if no config exists
             model_name = self._get_model_config(model_id, "name")
             if not model_name:
-                return Result.error(
-                    code="MODEL_NAME_NOT_CONFIGURED",
-                    message=f"Model name not configured for {model_id}"
-                )
+                # New simplified API: model_id is the HuggingFace model name directly
+                model_name = model_id
+                self.logger.info(f"Using model_id as HuggingFace model name: {model_id}")
 
             # Set up CUDA device if needed
             if device.startswith("cuda"):
@@ -90,14 +90,18 @@ class TextGenerationLoader(BaseLoader):
             
             # Test model with sample input to validate loading
             try:
+                import torch
+
                 test_input = "test input"
                 inputs = tokenizer(test_input, return_tensors="pt", truncation=True, max_length=32)
                 inputs = {k: v.to(device) for k, v in inputs.items()}
-                
-                with model.no_grad_context() if hasattr(model, 'no_grad_context') else model.eval():
+
+                # Use torch.no_grad() for inference (correct PyTorch pattern)
+                model.eval()  # Set to evaluation mode
+                with torch.no_grad():
                     # Quick forward pass to validate
                     _ = model.generate(**inputs, max_length=40, num_beams=2, early_stopping=True)
-                    
+
                 self.logger.info(f"Successfully validated T5 model: {model_id} on {device}")
             except Exception as e:
                 self.logger.warning(f"Model validation warning: {e}")
@@ -140,12 +144,12 @@ class TextGenerationLoader(BaseLoader):
         """
         try:
             # Get model name from configuration
+            # With new simplified API, model_id IS the HuggingFace model name if no config exists
             model_name = self._get_model_config(model_id, "name")
             if not model_name:
-                return Result.error(
-                    code="MODEL_NAME_NOT_CONFIGURED",
-                    message=f"Model name not configured for {model_id}"
-                )
+                # New simplified API: model_id is the HuggingFace model name directly
+                model_name = model_id
+                self.logger.info(f"Using model_id as HuggingFace model name: {model_id}")
 
             # Check if this is a local path or HuggingFace model
             from pathlib import Path

@@ -20,34 +20,33 @@ MODULE_ID = "core.model_manager"
 
 
 class ModelWorker:
-    """Worker that loads models on-demand, distributed across GPUs for load balancing.
+    """Worker dedicated to a specific model, processing tasks from a shared model queue.
 
-    Each worker is assigned a preferred device from the available device pool.
-    When a model requests "auto" device, it loads on the worker's assigned device.
-    This enables true multi-GPU parallelism with automatic load distribution.
+    Each worker loads one model on startup and never switches. Multiple workers
+    for the same model compete for tasks from the shared model queue, providing
+    natural load balancing across GPUs.
     """
 
-    def __init__(self, worker_id: str, model_manager_service, assigned_device: Optional[str] = None):
-        """Initialize model worker with device assignment.
+    def __init__(self, worker_id: str, model_name: str, assigned_gpu: str, model_queue: asyncio.Queue, model_manager_service):
+        """Initialize model-dedicated worker.
 
         Args:
             worker_id: Unique identifier for this worker
+            model_name: Model to load (HuggingFace name, e.g., "sentence-transformers/all-MiniLM-L6-v2")
+            assigned_gpu: GPU device for this worker (e.g., "cuda:0" or "cpu")
+            model_queue: Shared queue for this model (workers compete for tasks)
             model_manager_service: Reference to parent model manager
-            assigned_device: Preferred device for this worker (for load balancing across GPUs)
         """
         self.worker_id = worker_id
+        self.model_name = model_name  # NEVER changes
+        self.assigned_gpu = assigned_gpu  # NEVER changes
+        self.model_queue = model_queue  # Shared with other workers for this model
         self.model_manager = model_manager_service
         self.logger = logging.getLogger(f"{MODULE_ID}.worker.{worker_id}")
 
-        # Device assignment for load balancing
-        self.assigned_device = assigned_device  # Worker's preferred device from pool
-
         # State management
         self.state = WorkerState.IDLE
-        self.current_model_id = None
-        self.current_model = None
-        self.current_device = None  # Track current device (determined by loaded model)
-        self.is_preloaded = False  # Track if current model was preloaded
+        self.current_model = None  # Loaded model instance
         self.last_activity = time.time()
         self.is_running = False
         self._worker_task = None
@@ -56,99 +55,147 @@ class ModelWorker:
         self.tasks_processed = 0
         self.total_processing_time = 0.0
         self.errors = 0
-        self.model_switches = 0
 
-        device_info = f" (assigned: {assigned_device})" if assigned_device else ""
-        self.logger.info(f"Worker {worker_id} created{device_info}")
+        self.logger.info(f"Created for model {model_name} on {assigned_gpu}")
     
     async def start(self) -> bool:
-        """Start the worker processing loop."""
+        """Start the worker and load its dedicated model.
+
+        Model is loaded once on startup and never unloaded/switched.
+        """
         try:
+            # Load the model once at startup
+            self.logger.info(f"Loading model {self.model_name} on {self.assigned_gpu}...")
+            await self._load_model()
+
+            # Start processing loop
             self.is_running = True
             self._worker_task = asyncio.create_task(self._worker_loop())
-            self.logger.info(f"Worker {self.worker_id} started")
+            self.logger.info("Started and ready for tasks")
             return True
         except Exception as e:
             self.logger.error(error_message(
                 module_id=MODULE_ID,
                 error_type="WORKER_START_FAILED",
-                details=f"Failed to start worker {self.worker_id}: {e}",
-                location="ModelWorker.start()",
-                context={"worker_id": self.worker_id, "error": str(e)}
+                details=f"Failed to start worker {self.worker_id} for model {self.model_name}: {e}",
+                location="ModelWorker.start()"
             ))
             return False
     
     async def stop(self):
-        """Stop the worker and clean up resources."""
-        self.logger.info(f"Stopping worker {self.worker_id}")
+        """Stop the worker and clean up resources.
+
+        Unloads the model and clears CUDA cache to free VRAM.
+        """
+        self.logger.info("Stopping and unloading model...")
         self.is_running = False
         self.state = WorkerState.SHUTDOWN
-        
+
         if self._worker_task and not self._worker_task.done():
             self._worker_task.cancel()
             try:
                 await self._worker_task
             except asyncio.CancelledError:
                 pass
-        
-        # Unload current model
-        if self.current_model_id:
-            await self._unload_model()
-        
-        self.logger.info(f"Worker {self.worker_id} stopped")
+
+        # Unload model and clear CUDA memory
+        await self._unload_model()
+
+        self.logger.info("Stopped and cleaned up")
+
+    async def _unload_model(self):
+        """Unload the current model and free GPU memory."""
+        try:
+            if self.current_model is None:
+                self.logger.debug("No model loaded, skipping unload")
+                return
+
+            self.logger.info(f"Unloading model {self.model_name} from {self.assigned_gpu}")
+
+            # Clear model reference
+            self.current_model = None
+
+            # If on GPU, clear CUDA cache to free VRAM
+            if self.assigned_gpu.startswith("cuda"):
+                try:
+                    import torch
+                    import gc
+
+                    # Force garbage collection
+                    gc.collect()
+
+                    # Get device index
+                    device_idx = int(self.assigned_gpu.split(':')[1]) if ':' in self.assigned_gpu else 0
+                    torch.cuda.set_device(device_idx)
+
+                    # Clear CUDA cache
+                    torch.cuda.empty_cache()
+                    torch.cuda.synchronize(device_idx)
+
+                    # Get memory stats after cleanup
+                    allocated = torch.cuda.memory_allocated(device_idx) / (1024**3)
+                    reserved = torch.cuda.memory_reserved(device_idx) / (1024**3)
+
+                    self.logger.info(
+                        f"Cleared CUDA cache for {self.assigned_gpu}: "
+                        f"allocated={allocated:.2f}GB, reserved={reserved:.2f}GB"
+                    )
+
+                except Exception as e:
+                    self.logger.error(f"Error clearing CUDA cache: {e}")
+
+            self.logger.info(f"Model {self.model_name} unloaded from {self.assigned_gpu}")
+
+        except Exception as e:
+            self.logger.error(f"Error unloading model: {e}")
     
     async def _worker_loop(self):
-        """Main worker processing loop - pulls from shared global job queue."""
-        self.logger.info(f"Worker {self.worker_id} processing loop started")
+        """Main worker processing loop - pulls from shared model queue.
+
+        Multiple workers for the same model compete for tasks from the shared
+        queue, providing natural load balancing.
+        """
+        self.logger.info("Processing loop started")
 
         while self.is_running:
             try:
-                # Pull from shared global queue - all workers compete for tasks
-                if not (hasattr(self.model_manager, 'worker_pool') and
-                       self.model_manager.worker_pool and
-                       self.model_manager.worker_pool._global_job_queue is not None):
-                    # No global queue available, sleep and retry
-                    await asyncio.sleep(0.1)
-                    continue
+                # Pull from shared model queue - workers for this model compete
+                task = await self.model_queue.get()
+                self.logger.info(f"Pulled task {task.task_id[:8]} from model queue")
 
-                # Wait for next task from shared queue (timeout for model idle checks)
-                try:
-                    task = await asyncio.wait_for(
-                        self.model_manager.worker_pool._global_job_queue.get(),
-                        timeout=self.model_manager.config.get("worker_pool.queue_timeout", 30)
-                    )
-                    self.model_manager.worker_pool._global_job_queue.task_done()
-                    self.logger.info(f"Worker {self.worker_id} pulled task {task.task_id[:8]} from shared queue")
-                except asyncio.TimeoutError:
-                    # No tasks available, check for model timeout
-                    await self._check_model_timeout()
-                    continue
-
-                # Process the task
+                # Process the task (model already loaded, no switching needed)
                 result = await self._process_task(task)
+
+                # Mark task as done in queue
+                self.model_queue.task_done()
 
                 # Post result to result queue for background processor
                 if hasattr(self.model_manager, 'worker_pool') and self.model_manager.worker_pool:
                     await self.model_manager.worker_pool._worker_result_queue.put(result)
-                    self.logger.info(f"Worker {self.worker_id} posted result for task {result.task_id[:8]} to result queue")
+                    self.logger.info(f"Posted result for task {result.task_id[:8]} to result queue")
                 else:
                     self.logger.error(f"Cannot route result for task {result.task_id} - worker_pool not available")
 
+            except asyncio.CancelledError:
+                # Worker is shutting down
+                self.logger.info("Processing loop cancelled")
+                break
             except Exception as e:
                 self.logger.error(error_message(
                     module_id=MODULE_ID,
                     error_type="WORKER_PROCESSING_ERROR",
-                    details=f"Worker {self.worker_id} error in processing loop: {e}",
-                    location="ModelWorker._worker_loop()",
-                    context={"worker_id": self.worker_id, "errors": self.errors, "error": str(e)}
+                    details=f"Error in processing loop for worker {self.worker_id} (errors: {self.errors}): {e}",
+                    location="ModelWorker._worker_loop()"
                 ))
                 self.errors += 1
                 continue
 
-        self.logger.info(f"Worker {self.worker_id} processing loop ended")
+        self.logger.info("Processing loop ended")
     
     async def _process_task(self, task: WorkerTask) -> WorkerResult:
         """Process a single task.
+
+        Model is already loaded (no switching needed).
 
         Args:
             task: Task to process
@@ -160,37 +207,21 @@ class ModelWorker:
         self.state = WorkerState.BUSY
         self.last_activity = start_time
 
-        timing_breakdown = {
-            "model_switch": 0.0,
-            "actual_processing": 0.0,
-            "overhead": 0.0
-        }
-
         try:
-            # Ensure correct model is loaded
-            if self.current_model_id != task.model_id:
-                switch_start = time.time()
-                await self._switch_model(task.model_id)
-                timing_breakdown["model_switch"] = time.time() - switch_start
-
-            # Process based on task type
-            process_start = time.time()
+            # Process based on task type (model already loaded)
             if task.task_type == "embedding":
                 result_data = await self._process_embedding_task(task)
             elif task.task_type == "text_generation":
                 result_data = await self._process_text_generation_task(task)
             else:
                 raise ValueError(f"Unknown task type: {task.task_type}")
-            timing_breakdown["actual_processing"] = time.time() - process_start
 
             processing_time = time.time() - start_time
-            timing_breakdown["overhead"] = processing_time - timing_breakdown["model_switch"] - timing_breakdown["actual_processing"]
-
             self.tasks_processed += 1
             self.total_processing_time += processing_time
             self.state = WorkerState.IDLE
 
-            self.logger.info(f"Worker {self.worker_id} completed task {task.task_id} in {processing_time:.3f}s (model_switch: {timing_breakdown['model_switch']:.3f}s, processing: {timing_breakdown['actual_processing']:.3f}s, overhead: {timing_breakdown['overhead']:.3f}s)")
+            self.logger.info(f"Completed task {task.task_id[:8]} in {processing_time:.3f}s")
 
             return WorkerResult(
                 task_id=task.task_id,
@@ -199,19 +230,18 @@ class ModelWorker:
                 data=result_data,
                 processing_time=processing_time,
                 metadata={
-                    "device": self.current_device,
-                    "model_id": task.model_id,
-                    "timing_breakdown": timing_breakdown
+                    "device": self.assigned_gpu,
+                    "model_name": self.model_name
                 }
             )
-            
+
         except Exception as e:
             processing_time = time.time() - start_time
             self.errors += 1
             self.state = WorkerState.ERROR
-            
-            self.logger.error(f"Worker {self.worker_id} failed to process task {task.task_id}: {e}")
-            
+
+            self.logger.error(f"Failed to process task {task.task_id[:8]}: {e}")
+
             return WorkerResult(
                 task_id=task.task_id,
                 worker_id=self.worker_id,
@@ -220,255 +250,58 @@ class ModelWorker:
                 processing_time=processing_time
             )
     
-    async def _switch_model(self, model_id: str):
-        """Switch to a different model.
-
-        Args:
-            model_id: ID of model to load
-        """
-        self.state = WorkerState.LOADING
-
-        # Unload current model if any
-        if self.current_model_id and self.current_model_id != model_id:
-            await self._unload_model()
-
-        # Load new model
-        await self._load_model(model_id)
-        self.model_switches += 1
-
-        # Set back to IDLE so worker is available for task distribution
-        self.state = WorkerState.IDLE
-
-        self.logger.info(f"Worker {self.worker_id} switched to model {model_id}")
     
-    async def switch_model(self, model_id: str):
-        """Switch to a different model (public interface for preloading)."""
-        await self._switch_model(model_id)
-    
-    async def _load_model(self, model_id: str):
-        """Load a model on this worker with CUDA context management.
+    async def _load_model(self):
+        """Load this worker's dedicated model on its assigned GPU.
 
-        Device selection is based entirely on model requirements, not worker assignment.
-
-        Args:
-            model_id: ID of model to load
+        Model and GPU are fixed at worker creation (never change).
         """
         try:
-            # Get model's device preference from registry
-            target_device = None
-            if model_id in self.model_manager.model_registry:
-                model_config = self.model_manager.model_registry[model_id]["config"]
-                requested_device = model_config.device
+            self.state = WorkerState.LOADING
 
-                # Resolve device preference based on model requirements
-                if requested_device == "cpu":
-                    # Model explicitly requests CPU
-                    target_device = "cpu"
-                    self.logger.info(f"Model {model_id} requests CPU execution")
-                elif requested_device == "auto":
-                    # Auto-select best available device
-                    target_device = self._auto_select_device()
-                    self.logger.info(f"Model {model_id} auto-selected device: {target_device}")
-                elif requested_device == "cuda":
-                    # Model wants any available GPU
-                    target_device = self._select_available_gpu() or "cpu"
-                    self.logger.info(f"Model {model_id} requests GPU, using: {target_device}")
-                elif requested_device.startswith("cuda:"):
-                    # Model requests specific GPU
-                    target_device = requested_device
-                    self.logger.info(f"Model {model_id} requests specific GPU: {target_device}")
-                else:
-                    # Unknown device preference, use auto
-                    self.logger.warning(f"Model {model_id} has unknown device '{requested_device}', using auto")
-                    target_device = self._auto_select_device()
-            else:
-                # No registry info, use auto
-                target_device = self._auto_select_device()
-
-            # Clear CUDA cache and synchronize before loading
-            if target_device.startswith("cuda"):
+            # Clear CUDA cache and synchronize before loading (if using GPU)
+            if self.assigned_gpu.startswith("cuda"):
                 try:
                     import torch
-                    device_idx = int(target_device.split(':')[1]) if ':' in target_device else 0
+                    device_idx = int(self.assigned_gpu.split(':')[1]) if ':' in self.assigned_gpu else 0
                     torch.cuda.set_device(device_idx)
                     torch.cuda.empty_cache()
                     torch.cuda.synchronize(device_idx)
                 except (ImportError, RuntimeError) as e:
-                    self.logger.warning(f"Worker {self.worker_id} CUDA setup warning: {e}")
+                    self.logger.warning(f"CUDA setup warning: {e}")
 
-            # Note: Removed CPU refusal check - models can explicitly request CPU now
+            # Load model using LoaderFactory
+            if not hasattr(self.model_manager, 'loader_factory'):
+                raise RuntimeError("LoaderFactory not initialized in model_manager")
 
-            # Load model instance directly on target device
-            # Each worker needs its own model instance, not shared models
+            loader_factory = self.model_manager.loader_factory
 
-            # Get model type from config (populated by register_model())
-            model_type = self.model_manager.config.get(f"models.{model_id}.type")
+            # Get model_type from registry (required for explicit loader selection)
+            model_type = None
+            if hasattr(self.model_manager, 'model_registry') and self.model_name in self.model_manager.model_registry:
+                model_type = self.model_manager.model_registry[self.model_name].get("model_type")
+                self.logger.info(f"Retrieved model_type '{model_type}' from registry for {self.model_name}")
+            else:
+                self.logger.warning(f"Model {self.model_name} not found in registry, loader will auto-detect")
 
-            if not model_type:
-                # Check if model is in registry
-                if model_id in self.model_manager.model_registry:
-                    model_type = self.model_manager.model_registry[model_id]["config"].model_type
-                else:
-                    raise ValueError(f"Unknown model_id: {model_id} - not found in registry")
-
-            # Load model using LoaderFactory (single unified path for all model types)
-            model_result = await self._load_model_via_factory(model_id, target_device)
+            # Load model on assigned GPU with explicit model_type
+            self.logger.info(f"Loading model {self.model_name} (type: {model_type}) on {self.assigned_gpu} via LoaderFactory")
+            model_result = await loader_factory.load_model(self.model_name, self.assigned_gpu, model_type=model_type)
 
             if not model_result.success:
-                raise RuntimeError(f"Failed to load model {model_id}: {model_result.error}")
+                raise RuntimeError(f"Failed to load model {self.model_name}: {model_result.error}")
 
             self.current_model = model_result.data
-            self.current_model_id = model_id
-            self.current_device = target_device  # Track which device we loaded on
             self.last_activity = time.time()
+            self.state = WorkerState.IDLE
 
-            self.logger.info(f"Worker {self.worker_id} loaded model {model_id} on device {target_device}")
+            self.logger.info(f"Loaded model {self.model_name} on {self.assigned_gpu}")
 
         except Exception as e:
-            self.logger.error(f"Worker {self.worker_id} failed to load model {model_id}: {e}")
+            self.logger.error(f"Failed to load model {self.model_name}: {e}")
             self.state = WorkerState.ERROR
             raise
 
-    def _auto_select_device(self) -> str:
-        """Auto-select best available device for load balancing.
-
-        Uses worker's assigned device if available (for multi-GPU load balancing).
-        Otherwise falls back to first GPU or CPU.
-
-        Returns:
-            Device string (e.g., 'cuda:0', 'cuda:1', 'cpu')
-        """
-        # Use assigned device if worker has one (for load balancing)
-        if self.assigned_device:
-            return self.assigned_device
-
-        # Fallback: select first available GPU
-        try:
-            import torch
-            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-                return "cuda:0"
-            else:
-                return "cpu"
-        except ImportError:
-            return "cpu"
-
-    def _select_available_gpu(self) -> Optional[str]:
-        """Select an available GPU device for load balancing.
-
-        Uses worker's assigned device if it's a GPU, otherwise selects first GPU.
-
-        Returns:
-            GPU device string (e.g., 'cuda:0', 'cuda:1') or None if no GPU available
-        """
-        # Use assigned device if it's a GPU
-        if self.assigned_device and self.assigned_device.startswith("cuda"):
-            return self.assigned_device
-
-        # Fallback: select first available GPU
-        try:
-            import torch
-            if torch.cuda.is_available() and torch.cuda.device_count() > 0:
-                return "cuda:0"
-            else:
-                return None
-        except ImportError:
-            return None
-
-    async def _load_model_via_factory(self, model_id: str, target_device: str) -> Result:
-        """Load model using LoaderFactory (unified path for all model types).
-
-        Args:
-            model_id: ID of the model to load
-            target_device: Target device to load model on
-
-        Returns:
-            Result with model instance
-        """
-        # Use target_device (should always be provided in device-agnostic architecture)
-        device = target_device if target_device else "cpu"
-
-        # Get loader_factory from model_manager
-        if not hasattr(self.model_manager, 'loader_factory'):
-            return Result.error(
-                code="LOADER_FACTORY_NOT_AVAILABLE",
-                message="LoaderFactory not initialized in model_manager"
-            )
-
-        loader_factory = self.model_manager.loader_factory
-
-        # Use factory to load model (automatically selects correct loader)
-        self.logger.info(f"Loading model {model_id} on {device} via LoaderFactory")
-        return await loader_factory.load_model(model_id, device)
-
-    async def _unload_model(self):
-        """Unload current model from this worker and free GPU memory."""
-        if self.current_model_id:
-            self.state = WorkerState.UNLOADING
-
-            # Actually move model to CPU to free GPU memory
-            if self.current_model and self.current_device and self.current_device.startswith("cuda"):
-                try:
-                    import torch
-
-                    # Extract actual model from result data dictionary
-                    model_obj = None
-                    if isinstance(self.current_model, dict):
-                        model_obj = self.current_model.get("model")
-
-                    # Move model to CPU to free GPU memory
-                    if model_obj and hasattr(model_obj, 'to'):
-                        self.logger.debug(f"Worker {self.worker_id} moving model {self.current_model_id} to CPU...")
-                        model_obj.to('cpu')
-                        self.logger.info(f"Worker {self.worker_id} moved model {self.current_model_id} to CPU")
-
-                    # Also handle tokenizer if present (for text generation models)
-                    tokenizer_obj = None
-                    if isinstance(self.current_model, dict):
-                        tokenizer_obj = self.current_model.get("tokenizer")
-                    if tokenizer_obj and hasattr(tokenizer_obj, 'to'):
-                        tokenizer_obj.to('cpu')
-                        self.logger.debug(f"Worker {self.worker_id} moved tokenizer to CPU")
-
-                    # Clear CUDA cache to actually free memory
-                    torch.cuda.empty_cache()
-                    self.logger.info(f"Worker {self.worker_id} cleared CUDA cache for {self.current_model_id}")
-
-                    # Explicitly delete model reference to help garbage collection
-                    del model_obj
-                    if tokenizer_obj:
-                        del tokenizer_obj
-
-                except Exception as e:
-                    self.logger.error(f"Worker {self.worker_id} failed to free GPU memory: {e}", exc_info=True)
-
-            # Release model reference from model manager
-            if self.current_model_id in self.model_manager._loaded_models:
-                await self.model_manager.release_model(self.current_model_id)
-
-            # Clear worker's model reference
-            self.current_model = None
-            self.current_model_id = None
-            self.current_device = None  # Clear device tracking
-            self.is_preloaded = False
-            self.state = WorkerState.IDLE
-
-            self.logger.info(f"Worker {self.worker_id} unloaded model completely")
-
-    async def _check_model_timeout(self):
-        """Check if current model should be unloaded due to inactivity."""
-        if not self.current_model_id:
-            return
-        
-        # Don't unload preloaded models
-        if self.is_preloaded:
-            self.logger.debug(f"Worker {self.worker_id} keeping preloaded model {self.current_model_id}")
-            return
-        
-        idle_timeout = self.model_manager.config.get("worker_pool.model_idle_timeout", 300)
-        if (time.time() - self.last_activity) > idle_timeout:
-            self.logger.info(f"Worker {self.worker_id} unloading idle model {self.current_model_id}")
-            await self._unload_model()
-    
     async def _process_embedding_task(self, task: WorkerTask):
         """Process an embedding task.
 
@@ -487,9 +320,9 @@ class ModelWorker:
         # Generate embeddings with CUDA synchronization
         try:
             # Ensure CUDA context is correct for this worker
-            if self.current_device and self.current_device.startswith("cuda"):
+            if self.assigned_gpu.startswith("cuda"):
                 import torch
-                device_idx = int(self.current_device.split(':')[1]) if ':' in self.current_device else 0
+                device_idx = int(self.assigned_gpu.split(':')[1]) if ':' in self.assigned_gpu else 0
                 torch.cuda.set_device(device_idx)
 
             # Generate embeddings with explicit numpy conversion
@@ -515,48 +348,47 @@ class ModelWorker:
                 result_embeddings = [np.array(emb, copy=True).tolist() for emb in embeddings]
 
             # Synchronize CUDA operations after processing
-            if self.current_device and self.current_device.startswith("cuda"):
+            if self.assigned_gpu.startswith("cuda"):
                 torch.cuda.synchronize(device_idx)
 
         except Exception as e:
-            self.logger.error(f"Worker {self.worker_id} embedding error: {e}")
+            self.logger.error(f"Embedding error: {e}")
             raise
 
         return {
             "embeddings": result_embeddings,
-            "model_id": task.model_id,
+            "model_name": self.model_name,
             "dimension": len(result_embeddings[0] if isinstance(result_embeddings[0], list) else result_embeddings)
         }
     
     async def _process_text_generation_task(self, task: WorkerTask):
         """Process a text generation task.
-        
+
         Args:
             task: Text generation task
-            
+
         Returns:
             Generation results
         """
         if "model" not in self.current_model or "tokenizer" not in self.current_model:
             raise RuntimeError("No text generation model loaded")
-        
+
         model = self.current_model["model"]
         tokenizer = self.current_model["tokenizer"]
-        device = self.current_model["device"]
-        
+
         input_text = task.input_data
         max_length = task.metadata.get("max_length", 128)
-        
+
         # Tokenize input
         inputs = tokenizer(input_text, return_tensors="pt", truncation=True, max_length=512)
-        inputs = {k: v.to(device) for k, v in inputs.items()}
-        
+        inputs = {k: v.to(self.assigned_gpu) for k, v in inputs.items()}
+
         # Generate
         try:
             import torch
         except ImportError:
             raise RuntimeError("PyTorch required for text generation")
-            
+
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
@@ -565,13 +397,13 @@ class ModelWorker:
                 early_stopping=True,
                 do_sample=False
             )
-        
+
         # Decode result
         generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        
+
         return {
             "generated_text": generated_text,
-            "model_id": task.model_id,
+            "model_name": self.model_name,
             "input_length": len(input_text),
             "output_length": len(generated_text)
         }
@@ -588,15 +420,13 @@ class ModelWorker:
 
         return {
             "worker_id": self.worker_id,
-            "assigned_device": self.assigned_device,  # Worker's assigned device for load balancing
-            "device": self.current_device,  # Device of currently loaded model
+            "assigned_gpu": self.assigned_gpu,  # Worker's assigned GPU
+            "model_name": self.model_name,  # Dedicated model (never changes)
             "state": self.state.value,
-            "current_model_id": self.current_model_id,
             "is_running": self.is_running,
             "tasks_processed": self.tasks_processed,
             "total_processing_time": self.total_processing_time,
             "average_processing_time": avg_processing_time,
             "errors": self.errors,
-            "model_switches": self.model_switches,
             "last_activity": self.last_activity
         }

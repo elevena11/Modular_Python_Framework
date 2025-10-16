@@ -2,584 +2,36 @@
 
 ## Overview
 
-The Model Manager (`core.model_manager`) is a core framework service that provides AI model lifecycle management with dynamic model registration, GPU resource allocation, and model sharing capabilities. It acts as **infrastructure** that modules use to load and manage AI models through a **registry pattern**.
-
-**Architecture Philosophy**: The model_manager defines **capabilities** (what types of models it can handle), while individual modules define **requirements** (which specific models they need). Models are registered at runtime during module initialization, not pre-configured.
-
-**Model Source**: Currently supports **Hugging Face Hub** models (via `transformers` and `sentence-transformers` libraries). Models are downloaded and cached automatically in `data/models/`.
+The Model Manager (`core.model_manager`) provides a **unified task API** for AI model operations with automatic lifecycle management. All model configuration is passed with each request, making it simple and self-contained.
 
 **Key Features**:
-- Dynamic model registration from modules
-- Reference counting for model lifecycle management
-- Multi-GPU worker pool with load balancing
-- Embedding result caching
-- Automatic device detection (GPU/CPU)
-- Model sharing between modules
+- **Unified task() API** - single entry point for all model operations
+- **Self-contained requests** - all config in each call, no registration needed
+- **Deferred loading** - models auto-load on first use, auto-reload after release
+- **Pre-loading support** - optional pre-load with custom keep-alive timeouts
+- **Auto-release** - models automatically freed after inactivity
+- **VRAM management** - proper GPU memory cleanup with transparent reload
+- **Multi-GPU support** - worker pool distributes load across devices
+
+**Supported Models**: All models from **Hugging Face Hub** (downloaded and cached automatically in `data/models/`)
 
 ---
 
-## Architecture
+## Quick Start
 
-### Dynamic Registry Pattern
-
-Modules register their AI model requirements at runtime during Phase 2 initialization:
-
-```
-Module Phase 2 Initialization
-  |
-  +---> Registers ModelRequirement with model_manager
-         |
-         +---> model_manager: Tracks registration in registry
-                |
-                +---> On first use: Load model to GPU
-                      |
-                      +---> Subsequent uses: Reuse loaded model
-                            |
-                            +---> Module shutdown: Release reference
-                                  |
-                                  +---> No more references: Unload model
-```
-
-### Benefits
-
-1. **Modularity**: Add modules with AI needs without modifying core
-2. **Flexibility**: Each module specifies exactly what it needs
-3. **Separation of Concerns**: model_manager handles "how", modules specify "what"
-4. **Resource Optimization**: Shared models, GPU management, reference counting
-5. **Type Safety**: Pydantic schema validation for all model configurations
-
----
-
-## Model Types
-
-The model_manager supports multiple AI model categories:
-
-### 1. Embedding Models (`embedding`)
-
-**Purpose**: Convert text to dense vector representations for semantic search, clustering, and similarity.
-
-**Capabilities**:
-- Text-to-vector transformation
-- Batch processing
-- Result caching
-- Multi-GPU support
-
-**Required Configuration**:
-```python
-from modules.core.model_manager.schemas import ModelRequirement
-
-embedding_model = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",  # HuggingFace model name
-    dimension=384,  # Output vector dimension
-    device="auto",  # "auto", "cuda:0", "cuda:1", "cpu"
-    batch_size=32,
-    cache_embeddings=True
-)
-```
-
-**Popular Models**:
-- `sentence-transformers/all-MiniLM-L6-v2` (dimension: 384, fast)
-- `mixedbread-ai/mxbai-embed-large-v1` (dimension: 1024, high quality)
-- `intfloat/e5-large-v2` (dimension: 1024, multilingual)
-
-### 2. Text-to-Text Models (`text2text`)
-
-**Purpose**: Transform text to text (summarization, translation, paraphrasing).
-
-**Required Configuration**:
-```python
-t5_model = ModelRequirement(
-    model_type="text2text",
-    name="google/flan-t5-large",
-    max_input_length=512,  # Maximum input tokens
-    max_output_length=128,  # Maximum output tokens
-    device="auto"
-)
-```
-
-**Popular Models**:
-- `google/flan-t5-large` (summarization, Q&A)
-- `facebook/bart-large-cnn` (summarization)
-- `t5-base` (general text-to-text)
-
-### 3. Text Generation Models (`text_generation`)
-
-**Purpose**: Autoregressive text generation (completion, chat, creative writing).
-
-**Required Configuration**:
-```python
-generation_model = ModelRequirement(
-    model_type="text_generation",
-    name="gpt2-large",
-    temperature=0.7,
-    top_k=50,
-    top_p=0.9,
-    streaming=False
-)
-```
-
-### 4. Classification Models (`classification`)
-
-**Purpose**: Text classification (sentiment, topic, intent detection).
-
-**Required Configuration**:
-```python
-classifier = ModelRequirement(
-    model_type="classification",
-    name="distilbert-base-uncased-finetuned-sst-2-english",
-    num_labels=2,  # Number of classes
-    threshold=0.5
-)
-```
-
----
-
-## Model Preloading Strategy
-
-Modules control when and how their models are loaded through the `preload_workers` parameter in `ModelRequirement`.
-
-### Preload Options
-
-| preload_workers | Behavior | Use Case |
-|-----------------|----------|----------|
-| `0` (default) | Download/verify at startup, lazy load on first use | Most modules - efficient default |
-| `1` | Download + preload to 1 worker | Performance-critical modules |
-| `N` (2+) | Download + preload to N workers | High-throughput modules |
-
-### How It Works
-
-**preload_workers=0** (Default - Download Only):
-```
-Startup:    Download model → Verify → Unload (no memory usage)
-First Use:  Load to worker → Process → Keep loaded
-```
-
-**preload_workers=1** (Preload Single Worker):
-```
-Startup:    Download model → Load to worker_0 → Keep loaded
-First Use:  Use already-loaded model (instant)
-```
-
-**preload_workers=2+** (Preload Multiple Workers):
-```
-Startup:    Download model → Load to N workers → Keep loaded
-First Use:  Use already-loaded model on available worker
-```
-
-### Configuration Example
+### Basic Usage
 
 ```python
-from modules.core.model_manager.schemas import ModelRequirement
-
-# Default: Download only, lazy load (most efficient)
-embedding_model = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",
-    dimension=384,
-    preload_workers=0  # Download at startup, load on first use
-)
-
-# Preload to 1 worker (performance-critical)
-embedding_model = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",
-    dimension=384,
-    preload_workers=1  # Preload to 1 worker at startup
-)
-
-# Preload to multiple workers (high-throughput)
-embedding_model = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",
-    dimension=384,
-    preload_workers=2  # Preload to 2 workers at startup
-)
-```
-
-### Safety Features
-
-- **Automatic Capping**: Requested workers capped at available workers (no 100+ CPU workers)
-- **Graceful Degradation**: If preload fails, model loads on-demand
-- **Fail-Fast**: Download issues detected at startup, not runtime
-- **Memory Efficient**: Default (0) uses minimal memory until first use
-
-### Performance Considerations
-
-**When to use preload_workers=0** (default):
-- Development environments
-- Modules with infrequent model usage
-- Memory-constrained systems
-- Multiple models needed sporadically
-
-**When to use preload_workers=1**:
-- Production environments
-- Modules with frequent model usage
-- First-request performance is critical
-- Single-worker deployments
-
-**When to use preload_workers=2+**:
-- High-throughput production systems
-- Concurrent request handling
-- Multi-GPU systems
-- Mission-critical low-latency services
-
----
-
-## Device Selection Strategy
-
-Modules control device selection through the `device` parameter in `ModelRequirement`. This allows optimization of resource allocation based on model size and performance requirements.
-
-### Device Options
-
-| Device | Behavior | Use Case |
-|--------|----------|----------|
-| `"auto"` (default) | Auto-select best available GPU, fallback to CPU | Most models - let framework decide |
-| `"cpu"` | Force CPU execution | Small models to save GPU memory |
-| `"cuda"` | Use any available CUDA GPU | Model needs GPU but any GPU works |
-| `"cuda:0"`, `"cuda:1"` | Use specific GPU device | Dedicate specific GPU for workload |
-
-### How Device Selection Works
-
-```
-Module registers model with device preference
-  |
-  +---> Worker pool selects matching workers
-         |
-         +---> Model loaded on workers matching device preference
-                |
-                +---> Load balancing routes tasks to appropriate workers
-```
-
-**Key Principles**:
-1. **Module-Controlled**: Each module specifies optimal device for its model size/needs
-2. **Worker Matching**: Worker pool routes models to workers on matching devices
-3. **Mixed Pools**: Framework supports mixed CPU + GPU worker pools
-4. **Graceful Fallback**: If no matching workers, uses available workers
-
-### Configuration Examples
-
-```python
-from modules.core.model_manager.schemas import ModelRequirement
-
-# Small model on CPU (memory-efficient)
-small_model = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",
-    dimension=384,
-    device="cpu",  # Small model - efficient on CPU, saves GPU memory
-    batch_size=16,
-    preload_workers=0
-)
-
-# Large model on GPU (performance-critical)
-large_model = ModelRequirement(
-    model_type="embedding",
-    name="mixedbread-ai/mxbai-embed-large-v1",
-    dimension=1024,
-    device="auto",  # Auto-select best GPU
-    batch_size=32,
-    preload_workers=2
-)
-
-# Model pinned to specific GPU
-pinned_model = ModelRequirement(
-    model_type="text_generation",
-    name="google/flan-t5-large",
-    device="cuda:1",  # Dedicate GPU 1 for this workload
-    max_input_length=512,
-    max_output_length=128,
-    preload_workers=1
-)
-```
-
-### Worker Pool Configuration
-
-Configure mixed CPU/GPU worker pool in model_manager settings:
-
-```python
-# modules/core/model_manager/settings.py
-worker_pool: WorkerPoolConfig = Field(
-    default_factory=lambda: WorkerPoolConfig(
-        enabled=True,
-        num_workers=3,
-        devices=["auto", "cpu"],  # Auto-detect GPUs + 1 CPU worker
-        # Or explicit configuration:
-        # devices=["cuda:0", "cuda:1", "cpu"]  # 2 GPU workers + 1 CPU worker
-    )
-)
-```
-
-**Default Configuration**:
-- `devices: ["auto", "cpu"]` - Auto-detect all available GPUs + 1 CPU worker
-- `num_workers: 3` - 3 workers total
-- Provides optimal mixed workload support out of the box
-
-### Performance Guidelines
-
-**Use device="cpu" for**:
-- Small embedding models (<512 dimensions)
-- Models used infrequently
-- Development/testing workloads
-- Saving GPU memory for larger models
-
-**Use device="auto" or device="cuda" for**:
-- Large embedding models (>512 dimensions)
-- Text generation models
-- Performance-critical operations
-- High-throughput workloads
-
-**Use device="cuda:N" for**:
-- Dedicated GPU allocation per model type
-- Load balancing across specific GPUs
-- Multi-GPU systems with model affinity
-- Avoiding GPU contention
-
-### Real-World Example
-
-```python
-# modules/standard/document_processor/settings.py
-class DocumentProcessorSettings(BaseModel):
-    # Small model for keyword extraction - use CPU
-    keyword_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="sentence-transformers/all-MiniLM-L6-v2",
-            dimension=384,
-            device="cpu",  # Efficient on CPU
-            preload_workers=0
-        )
-    )
-
-    # Large model for semantic search - use GPU
-    semantic_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="mixedbread-ai/mxbai-embed-large-v1",
-            dimension=1024,
-            device="auto",  # Needs GPU performance
-            preload_workers=2
-        )
-    )
-```
-
-**Benefits**:
-- Small keyword model on CPU doesn't waste GPU memory
-- Large semantic model gets GPU resources for performance
-- Both models available simultaneously
-- Optimal resource utilization
-
----
-
-## Usage Pattern
-
-### Step 1: Define Model Requirements in Module Settings
-
-```python
-# modules/standard/my_module/settings.py
-from pydantic import BaseModel, Field
-from modules.core.model_manager.schemas import ModelRequirement
-
-class MyModuleSettings(BaseModel):
-    enabled: bool = Field(default=True)
-
-    # Define model requirements
-    embedding_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="sentence-transformers/all-MiniLM-L6-v2",
-            dimension=384,
-            device="auto",
-            batch_size=32,
-            cache_embeddings=True
-        )
-    )
-```
-
-### Step 2: Register Model During Phase 2 Initialization
-
-```python
-# modules/standard/my_module/services.py
-from core.logging import get_framework_logger
-
-MODULE_ID = "standard.my_module"
-logger = get_framework_logger(MODULE_ID)
-
-class MyModuleService:
-    def __init__(self, app_context):
-        self.app_context = app_context
-        self.model_id = None
-        self.initialized = False
-
-    async def initialize(self, settings: MyModuleSettings) -> bool:
-        """Phase 2 initialization - register model with model_manager."""
-        try:
-            # Get model_manager service
-            model_manager = self.app_context.get_service("core.model_manager.service")
-            if not model_manager:
-                logger.error("model_manager service not available")
-                return False
-
-            # Register model requirement
-            model_id = f"{MODULE_ID}_embeddings"
-
-            register_result = await model_manager.register_model(
-                model_id=model_id,
-                model_config=settings.embedding_model,  # Pass ModelRequirement directly
-                requester_module_id=MODULE_ID
-            )
-
-            if not register_result.success:
-                logger.error(f"Failed to register model: {register_result.error}")
-                return False
-
-            self.model_id = register_result.data["model_id"]
-            logger.info(f"Model registered successfully: {self.model_id}")
-
-            self.initialized = True
-            return True
-
-        except Exception as e:
-            logger.error(f"Initialization failed: {e}")
-            return False
-```
-
-### Step 3: Use Registered Model
-
-```python
-# modules/standard/my_module/services.py
-async def embed_texts(self, texts: list[str]) -> Result:
-    """Generate embeddings using registered model."""
-    if not self.initialized or not self.model_id:
-        return Result.error(
-            code="NOT_INITIALIZED",
-            message="Service not initialized"
-        )
-
-    try:
-        model_manager = self.app_context.get_service("core.model_manager.service")
-
-        # Generate embeddings
-        result = await model_manager.generate_embeddings(
-            texts=texts,
-            model_id=self.model_id
-        )
-
-        if result.success:
-            # Extract embeddings from result data
-            embeddings = result.data.get("embeddings", [])
-            logger.info(f"Generated {len(embeddings)} embeddings")
-            return Result.success(data={"embeddings": embeddings})
-        else:
-            logger.error(f"Embedding generation failed: {result.error}")
-            return result
-
-    except Exception as e:
-        logger.error(f"Error generating embeddings: {e}")
-        return Result.error(
-            code="EMBEDDING_ERROR",
-            message="Failed to generate embeddings",
-            details={"error": str(e)}
-        )
-```
-
-### Step 4: Release Model on Shutdown
-
-```python
-# modules/standard/my_module/services.py
-async def cleanup_resources(self):
-    """Graceful shutdown - release model reference."""
-    if self.model_id:
-        try:
-            model_manager = self.app_context.get_service("core.model_manager.service")
-            if model_manager:
-                release_result = await model_manager.release_model(
-                    model_id=self.model_id,
-                    requester_module_id=MODULE_ID
-                )
-
-                if release_result.success:
-                    logger.info("Model released successfully")
-                else:
-                    logger.warning(f"Model release warning: {release_result.error}")
-
-                self.model_id = None
-
-        except Exception as e:
-            logger.error(f"Error releasing model: {e}")
-
-    self.initialized = False
-```
-
----
-
-## API Reference
-
-### `register_model(model_id: str, model_config: ModelRequirement, requester_module_id: str) -> Result`
-
-Register a model requirement with the model_manager.
-
-**Parameters**:
-- `model_id`: Unique identifier for this model (e.g., "standard.my_module_embeddings")
-- `model_config`: `ModelRequirement` instance with model configuration
-- `requester_module_id`: Module ID making the request (e.g., "standard.my_module")
-
-**Returns**: `Result` with registration data:
-```python
-{
-    "registered": True,
-    "model_id": "standard.my_module_embeddings",
-    "new_registration": True,  # False if already registered
-    "model_type": "embedding",
-    "model_name": "sentence-transformers/all-MiniLM-L6-v2",
-    "reference_count": 1
-}
-```
-
-**Example**:
-```python
-from modules.core.model_manager.schemas import ModelRequirement
-
-model_req = ModelRequirement(
-    model_type="embedding",
-    name="sentence-transformers/all-MiniLM-L6-v2",
-    dimension=384,
-    device="auto"
-)
-
-result = await model_manager.register_model(
-    model_id="standard.my_module_embeddings",
-    model_config=model_req,
-    requester_module_id="standard.my_module"
-)
-```
-
----
-
-### `generate_embeddings(texts: Union[str, List[str]], model_id: str) -> Result`
-
-Generate vector embeddings for text using registered model.
-
-**Parameters**:
-- `texts`: Single text string or list of texts
-- `model_id`: Model ID from registration
-
-**Returns**: `Result` with embedding data:
-```python
-{
-    "embeddings": [[0.1, 0.2, ...], ...],  # List of embedding vectors
-    "model_id": "standard.my_module_embeddings",
-    "cached": False,  # True if result came from cache
-    "processing_time": 0.045,
-    "worker_id": "worker_0"  # If worker pool is used
-}
-```
-
-**Example**:
-```python
-result = await model_manager.generate_embeddings(
-    texts=["hello world", "test document"],
-    model_id="standard.my_module_embeddings"
+# Get model_manager service
+model_manager = app_context.get_service("core.model_manager.service")
+
+# Generate embeddings (auto-creates workers on first use)
+result = await model_manager.task(
+    task_data=["hello world", "test document"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
 )
 
 if result.success:
@@ -587,233 +39,378 @@ if result.success:
     print(f"Generated {len(embeddings)} embeddings")
 ```
 
-**Note**: Always extract embeddings using `.get("embeddings", [])` from the result data dictionary.
+That's it! No registration, no setup - just call `task()` with your config.
 
 ---
 
-### `release_model(model_id: str, requester_module_id: str) -> Result`
+## The Unified task() API
 
-Release a model reference (decrements reference count).
+### Single Entry Point
 
-**Parameters**:
-- `model_id`: Model ID to release
-- `requester_module_id`: Module ID releasing the model
+The `task()` method is the **only** API you need for all model operations:
 
-**Returns**: `Result` with release status:
+```python
+await model_manager.task(
+    task_data=<your_data>,        # Data to process (or None to pre-load)
+    task_type="embedding",         # "embedding" or "text_generation"
+    model_name="model-name",       # HuggingFace model name
+    num_workers=1,                 # Number of workers to create
+    device="gpu",                  # "gpu" or "cpu"
+    keep_alive=5,                  # Minutes before auto-release (optional)
+    **kwargs                       # Task-specific params (e.g., max_length)
+)
+```
+
+### Self-Contained Requests
+
+**All configuration is in each request** - no separate registration step:
+
+```python
+# First request - creates workers, loads model, processes
+result = await model_manager.task(
+    task_data=["hello"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+
+# Second request - reuses existing workers
+result = await model_manager.task(
+    task_data=["world"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+
+# Different config? No problem - each request is independent
+result = await model_manager.task(
+    task_data=["test"],
+    task_type="embedding",
+    model_name="sentence-transformers/all-MiniLM-L6-v2",  # Different model
+    num_workers=1,  # Different worker count
+    device="cpu"    # Different device
+)
+```
+
+---
+
+## Pre-Loading Models
+
+### Why Pre-Load?
+
+Pre-loading ensures models are ready before the first request:
+- **Eliminates first-request latency** (no model download/load delay)
+- **Warms up VRAM** for consistent performance
+- **Custom keep-alive** per model
+
+### How to Pre-Load
+
+Set `task_data=None` to pre-load without processing:
+
+```python
+# Pre-load embedding model with 30 minute keep-alive
+await model_manager.task(
+    task_data=None,  # Pre-load only, no processing
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu",
+    keep_alive=30  # Stay loaded for 30 minutes of inactivity
+)
+
+# Later requests use the pre-loaded model immediately
+result = await model_manager.task(
+    task_data=["instant processing!"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+```
+
+### Pre-Load at Startup
+
+Pre-load models during module initialization:
+
+```python
+# modules/standard/my_module/services.py
+async def initialize(self, settings) -> Result:
+    """Phase 2: Pre-load models for instant first use."""
+    model_manager = self.app_context.get_service("core.model_manager.service")
+
+    # Pre-load embedding model
+    await model_manager.task(
+        task_data=None,
+        task_type="embedding",
+        model_name=settings.embedding_model_name,
+        num_workers=2,
+        device="gpu",
+        keep_alive=30
+    )
+
+    # Pre-load text generation model
+    await model_manager.task(
+        task_data=None,
+        task_type="text_generation",
+        model_name=settings.t5_model_name,
+        num_workers=1,
+        device="gpu",
+        keep_alive=10
+    )
+
+    logger.info("Models pre-loaded and ready")
+    return Result.success(data={"initialized": True})
+```
+
+### Pre-Load Response
+
+Pre-load returns confirmation (no embeddings/text):
+
 ```python
 {
-    "released": True,
-    "references": 0  # Remaining reference count
+    "preloaded": True,
+    "model_name": "mixedbread-ai/mxbai-embed-large-v1",
+    "workers": 2,
+    "device": "gpu",
+    "keep_alive_minutes": 30
 }
 ```
 
-**Example**:
+---
+
+## Automatic Lifecycle Management
+
+### Auto-Loading (Deferred/Lazy)
+
+**Models load on first use** - no explicit load step needed:
+
 ```python
-result = await model_manager.release_model(
-    model_id="standard.my_module_embeddings",
-    requester_module_id="standard.my_module"
+# Model not loaded yet
+result = await model_manager.task(
+    task_data=["first request"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+# Workers created, model loaded, task processed
+
+# Model already loaded
+result = await model_manager.task(
+    task_data=["second request"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+# Reuses existing workers, instant processing
+```
+
+### Auto-Release (Keep-Alive)
+
+**Models automatically release after inactivity**:
+
+```python
+await model_manager.task(
+    task_data=["process this"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu",
+    keep_alive=5  # Auto-release after 5 minutes of inactivity
+)
+
+# After 5 minutes of no requests...
+# Model is automatically released, VRAM freed
+
+# Next request auto-recreates workers
+result = await model_manager.task(
+    task_data=["transparent reload!"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+# Workers recreated, model reloaded, task processed
+```
+
+**Default keep_alive**: 5 minutes (configurable in model_manager settings)
+
+### Manual Release
+
+**Free VRAM immediately** without waiting for timeout:
+
+```python
+# Release model right now
+await model_manager.release_model("mixedbread-ai/mxbai-embed-large-v1")
+
+# VRAM is freed immediately
+# Registry entry removed (no stale config)
+
+# Next request creates fresh workers with new config
+await model_manager.task(
+    task_data=["new request"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=1,  # Can use different config
+    device="cpu"    # Different device
 )
 ```
 
 ---
 
-### `get_service_status() -> Result`
+## Model Types
 
-Get comprehensive service status including loaded models, cache, and workers.
+### 1. Embedding Models
 
-**Returns**: `Result` with status data:
+Convert text to dense vector representations:
+
 ```python
-{
-    "initialized": True,
-    "worker_pool": {
-        "enabled": True,
-        "num_workers": 2,
-        "active_workers": 2,
-        "pending_tasks": 0
-    },
-    "embedding_cache": {
-        "enabled": True,
-        "cached_count": 150,
-        "hit_rate": 0.67
-    },
-    "loaded_models": {
-        "standard.my_module_embeddings": {
-            "reference_count": 1,
-            "last_accessed": 1697234567.89,
-            "source": "worker_pool",
-            "device": "cuda:0"
-        }
-    },
-    "total_loaded_models": 1
-}
+result = await model_manager.task(
+    task_data=["hello world", "test document"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+
+if result.success:
+    embeddings = result.data.get("embeddings", [])
+    # embeddings = [[0.1, 0.2, ...], [0.3, 0.4, ...]]
 ```
+
+**Popular Models**:
+- `mixedbread-ai/mxbai-embed-large-v1` (1024 dim, high quality)
+- `sentence-transformers/all-MiniLM-L6-v2` (384 dim, fast)
+- `intfloat/e5-large-v2` (1024 dim, multilingual)
+
+### 2. Text Generation Models
+
+Generate text from input text:
+
+```python
+result = await model_manager.task(
+    task_data="Summarize this article: ...",
+    task_type="text_generation",
+    model_name="google-t5/t5-large",
+    num_workers=1,
+    device="gpu",
+    max_length=128  # Task-specific parameter
+)
+
+if result.success:
+    generated_text = result.data.get("generated_text", "")
+```
+
+**Popular Models**:
+- `google-t5/t5-large` (summarization, Q&A)
+- `google-t5/t5-base` (smaller, faster)
+- `facebook/bart-large-cnn` (summarization)
 
 ---
 
-## Resource Management
+## Device Selection
 
-### Model Sharing
+### Device Options
 
-Multiple modules can share the same loaded model through reference counting:
+| Device | Behavior |
+|--------|----------|
+| `"gpu"` (default) | Auto-select best available GPU |
+| `"cpu"` | Force CPU execution |
+| `"cuda:0"`, `"cuda:1"` | Specific GPU device (not implemented yet) |
 
-```python
-# Module A registers embedding model
-await model_manager.register_model(
-    model_id="embedding_384",
-    model_config=ModelRequirement(
-        model_type="embedding",
-        name="sentence-transformers/all-MiniLM-L6-v2",
-        dimension=384
-    ),
-    requester_module_id="standard.module_a"
-)
-
-# Module B registers same model - reuses loaded instance
-await model_manager.register_model(
-    model_id="embedding_384",
-    model_config=ModelRequirement(
-        model_type="embedding",
-        name="sentence-transformers/all-MiniLM-L6-v2",
-        dimension=384
-    ),
-    requester_module_id="standard.module_b"
-)
-# Reference count is now 2, model stays loaded
-```
-
-**Lifecycle**:
-- Model loaded on first use (not at registration)
-- Reference count incremented for each requester
-- Model kept in memory while any module holds reference
-- Unloaded when all references released and model idle
-
-### GPU Allocation
-
-The model_manager handles GPU resource allocation automatically:
-
-**Device Selection**:
-- `"auto"`: Automatically selects best available device (prefers GPU)
-- `"cuda:0"`, `"cuda:1"`, etc.: Specific GPU device
-- `"cpu"`: Force CPU execution
-
-**Worker Pool**:
-- Distributes models across multiple GPUs
-- Round-robin or least-busy load balancing
-- Each worker independently handles tasks
-- Configured in model_manager settings
-
-### Embedding Cache
-
-Caches embedding results to avoid recomputation:
+### Examples
 
 ```python
-# First call - generates embeddings
-result1 = await model_manager.generate_embeddings(
-    texts=["hello world"],
-    model_id="my_embeddings"
+# Use GPU (auto-select best available)
+await model_manager.task(
+    task_data=["large model needs GPU"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    device="gpu"
 )
-# result1.data["cached"] = False
 
-# Second call with same text - cached
-result2 = await model_manager.generate_embeddings(
-    texts=["hello world"],
-    model_id="my_embeddings"
+# Force CPU (save GPU memory)
+await model_manager.task(
+    task_data=["small model on CPU"],
+    task_type="embedding",
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    device="cpu"
 )
-# result2.data["cached"] = True
 ```
 
-**Configuration** (in `core.model_manager` settings):
-- `enabled`: Enable/disable caching
-- `max_cache_size`: Maximum cached entries (default: 10000)
-- `ttl_seconds`: Time to live for cached entries (default: 3600)
+### When to Use Each Device
+
+**Use device="gpu"**:
+- Large embedding models (>512 dimensions)
+- Text generation models
+- Performance-critical operations
+- High-throughput workloads
+
+**Use device="cpu"**:
+- Small embedding models (<512 dimensions)
+- Development/testing
+- Save GPU memory for larger models
+- Models used infrequently
 
 ---
 
-## Configuration
+## Worker Configuration
 
-### Framework-Level Settings
+### Number of Workers
 
-Model manager infrastructure settings in `modules/core/model_manager/settings.py`:
-
-```python
-class ModelManagerSettings(BaseModel):
-    # Module enable/disable
-    enabled: bool = Field(default=True)
-
-    # Worker pool configuration
-    worker_pool: WorkerPoolConfig = Field(
-        default_factory=lambda: WorkerPoolConfig(
-            enabled=True,
-            num_workers=2,
-            devices=["auto"],  # Auto-detect GPUs
-            batch_size=32,
-            queue_timeout=30,
-            load_balancing="round_robin"
-        )
-    )
-
-    # Embedding cache configuration
-    embedding_cache: EmbeddingCacheConfig = Field(
-        default_factory=lambda: EmbeddingCacheConfig(
-            enabled=True,
-            max_cache_size=10000,
-            ttl_seconds=3600
-        )
-    )
-
-    # Hardware preferences
-    device_preference: str = Field(default="auto")
-    gpu_memory_fraction: float = Field(default=0.8)
-    allow_gpu_growth: bool = Field(default=True)
-```
-
-### Module-Level Requirements
-
-Each module defines its own model requirements in its settings:
+`num_workers` controls parallel processing capacity:
 
 ```python
-# modules/standard/my_module/settings.py
-class MyModuleSettings(BaseModel):
-    embedding_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="sentence-transformers/all-MiniLM-L6-v2",
-            dimension=384,
-            device="auto",
-            batch_size=32
-        )
-    )
+# Single worker (sequential processing)
+await model_manager.task(
+    task_data=texts,
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=1
+)
+
+# Multiple workers (parallel processing)
+await model_manager.task(
+    task_data=texts,
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2  # 2 workers can process in parallel
+)
 ```
+
+**Guidelines**:
+- **1 worker**: Most use cases, simple sequential processing
+- **2+ workers**: High-throughput scenarios, parallel requests
+- **GPU**: Workers capped by available GPUs (can't exceed GPU count)
+- **CPU**: Can create many workers (up to framework limit)
 
 ---
 
-## Complete Example: Document Processor Module
+## Complete Example Module
 
-This example demonstrates a complete module using the model_manager:
+Here's a complete module using the unified task() API:
 
-### 1. Module Settings
+### Module Settings
 
 ```python
 # modules/standard/document_processor/settings.py
 from pydantic import BaseModel, Field
-from modules.core.model_manager.schemas import ModelRequirement
 
 class DocumentProcessorSettings(BaseModel):
     enabled: bool = Field(default=True)
 
-    embedding_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="mixedbread-ai/mxbai-embed-large-v1",
-            dimension=1024,
-            device="auto",
-            batch_size=32,
-            cache_embeddings=True
-        )
+    # Model names (no complex ModelRequirement schema needed)
+    embedding_model_name: str = Field(
+        default="mixedbread-ai/mxbai-embed-large-v1"
     )
+    embedding_workers: int = Field(default=2)
+    embedding_device: str = Field(default="gpu")
 ```
 
-### 2. Service Implementation
+### Service Implementation
 
 ```python
 # modules/standard/document_processor/services.py
@@ -826,54 +423,44 @@ logger = get_framework_logger(MODULE_ID)
 class DocumentProcessorService:
     def __init__(self, app_context):
         self.app_context = app_context
-        self.model_id = None
-        self.initialized = False
+        self.settings = None
 
-    async def initialize(self, settings: DocumentProcessorSettings) -> bool:
-        """Phase 2: Register model with model_manager."""
-        try:
-            model_manager = self.app_context.get_service("core.model_manager.service")
-            if not model_manager:
-                logger.error("model_manager service not available")
-                return False
+    async def initialize(self, settings) -> Result:
+        """Phase 2: Pre-load models for instant use."""
+        self.settings = settings
 
-            # Register embedding model
-            model_id = f"{MODULE_ID}_embeddings"
-
-            register_result = await model_manager.register_model(
-                model_id=model_id,
-                model_config=settings.embedding_model,
-                requester_module_id=MODULE_ID
+        model_manager = self.app_context.get_service("core.model_manager.service")
+        if not model_manager:
+            return Result.error(
+                code="MODEL_MANAGER_NOT_AVAILABLE",
+                message="model_manager service not available"
             )
 
-            if not register_result.success:
-                logger.error(f"Failed to register model: {register_result.error}")
-                return False
+        # Pre-load embedding model
+        await model_manager.task(
+            task_data=None,  # Pre-load only
+            task_type="embedding",
+            model_name=settings.embedding_model_name,
+            num_workers=settings.embedding_workers,
+            device=settings.embedding_device,
+            keep_alive=30  # 30 minutes before auto-release
+        )
 
-            self.model_id = register_result.data["model_id"]
-            logger.info(f"Registered embedding model: {self.model_id}")
-
-            self.initialized = True
-            return True
-
-        except Exception as e:
-            logger.error(f"Initialization failed: {e}")
-            return False
+        logger.info("Document processor initialized with pre-loaded models")
+        return Result.success(data={"initialized": True})
 
     async def embed_documents(self, documents: list[str]) -> Result:
         """Generate embeddings for documents."""
-        if not self.initialized:
-            return Result.error(
-                code="NOT_INITIALIZED",
-                message="Service not initialized"
-            )
-
         try:
             model_manager = self.app_context.get_service("core.model_manager.service")
 
-            result = await model_manager.generate_embeddings(
-                texts=documents,
-                model_id=self.model_id
+            # Use unified task() API
+            result = await model_manager.task(
+                task_data=documents,
+                task_type="embedding",
+                model_name=self.settings.embedding_model_name,
+                num_workers=self.settings.embedding_workers,
+                device=self.settings.embedding_device
             )
 
             if result.success:
@@ -892,35 +479,239 @@ class DocumentProcessorService:
             )
 
     async def cleanup_resources(self):
-        """Graceful shutdown - release model."""
-        if self.model_id:
-            try:
-                model_manager = self.app_context.get_service("core.model_manager.service")
-                if model_manager:
-                    await model_manager.release_model(
-                        model_id=self.model_id,
-                        requester_module_id=MODULE_ID
-                    )
-                    logger.info("Model released")
-                    self.model_id = None
-            except Exception as e:
-                logger.error(f"Error releasing model: {e}")
+        """Graceful shutdown - manually release models."""
+        try:
+            model_manager = self.app_context.get_service("core.model_manager.service")
+            if model_manager and self.settings:
+                # Release embedding model (frees VRAM immediately)
+                await model_manager.release_model(
+                    self.settings.embedding_model_name
+                )
+                logger.info("Models released")
+        except Exception as e:
+            logger.error(f"Error releasing models: {e}")
+```
 
-        self.initialized = False
+---
+
+## API Reference
+
+### task()
+
+**Unified entry point for all model operations.**
+
+```python
+await model_manager.task(
+    task_data: Optional[Any],
+    task_type: str,
+    model_name: str,
+    num_workers: int = 1,
+    device: str = "gpu",
+    keep_alive: Optional[int] = None,
+    **kwargs
+) -> Result
+```
+
+**Parameters**:
+- `task_data`: Data to process (texts for embeddings, text for generation, etc.)
+  - Set to `None` for pre-loading only (loads model without processing)
+- `task_type`: Type of task
+  - `"embedding"` - Generate embeddings
+  - `"text_generation"` - Generate text
+- `model_name`: HuggingFace model name (e.g., `"mixedbread-ai/mxbai-embed-large-v1"`)
+- `num_workers`: Number of workers to create (default: 1)
+  - For `device="gpu"`: Suggestion, capped by available GPUs
+  - For `device="cpu"`: Exact count created
+- `device`: Device specification (default: `"gpu"`)
+  - `"gpu"` - Auto-select best GPU
+  - `"cpu"` - Force CPU execution
+- `keep_alive`: Minutes of inactivity before auto-release (default: from settings)
+  - Auto-release frees VRAM after inactivity
+  - Next use transparently recreates workers
+- `**kwargs`: Additional task-specific parameters
+  - Embeddings: (none currently)
+  - Text generation: `max_length`, etc.
+
+**Returns**: `Result` with task output
+
+**Examples**:
+
+```python
+# Regular embedding task
+result = await model_manager.task(
+    task_data=["hello", "world"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu"
+)
+
+# Pre-load model with 30 minute keep-alive
+result = await model_manager.task(
+    task_data=None,  # Pre-load only
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=2,
+    device="gpu",
+    keep_alive=30
+)
+
+# Text generation with custom parameters
+result = await model_manager.task(
+    task_data="Translate this text",
+    task_type="text_generation",
+    model_name="google-t5/t5-large",
+    num_workers=1,
+    device="gpu",
+    keep_alive=10,
+    max_length=128
+)
+```
+
+---
+
+### release_model()
+
+**Manually release a model to free VRAM immediately.**
+
+```python
+await model_manager.release_model(model_name: str) -> Result
+```
+
+**Parameters**:
+- `model_name`: Model identifier to release
+
+**Behavior**:
+- Stops all workers for this model
+- Unloads model and frees VRAM immediately
+- Removes registry entry completely (no stale config)
+- Next request creates fresh workers with new config
+
+**Example**:
+
+```python
+# Free VRAM immediately
+await model_manager.release_model("mixedbread-ai/mxbai-embed-large-v1")
+
+# Next request auto-recreates with new config
+await model_manager.task(
+    task_data=["new request"],
+    task_type="embedding",
+    model_name="mixedbread-ai/mxbai-embed-large-v1",
+    num_workers=1,  # Can use different worker count
+    device="cpu"    # Can use different device
+)
+```
+
+---
+
+## Configuration
+
+### Model Manager Settings
+
+Framework-level settings in `modules/core/model_manager/settings.py`:
+
+```python
+class ModelManagerSettings(BaseModel):
+    # Enable/disable entire model_manager
+    enabled: bool = Field(default=True)
+
+    # Worker pool configuration
+    worker_pool: WorkerPoolConfig = Field(
+        default_factory=lambda: WorkerPoolConfig(
+            enabled=True,
+            num_workers=2,
+            devices=["auto"],  # Auto-detect GPUs
+            queue_timeout=30,
+            model_idle_timeout=300,  # 5 minutes default keep_alive
+            load_balancing="round_robin"
+        )
+    )
+
+    # Embedding cache configuration
+    embedding_cache: EmbeddingCacheConfig = Field(
+        default_factory=lambda: EmbeddingCacheConfig(
+            enabled=True,
+            max_cache_size=10000,
+            ttl_seconds=3600
+        )
+    )
+```
+
+### Module Settings
+
+Modules define their own model preferences in settings:
+
+```python
+# modules/standard/my_module/settings.py
+class MyModuleSettings(BaseModel):
+    embedding_model_name: str = Field(
+        default="mixedbread-ai/mxbai-embed-large-v1"
+    )
+    embedding_workers: int = Field(default=2)
+    embedding_device: str = Field(default="gpu")
+    embedding_keep_alive: int = Field(default=30)  # minutes
+```
+
+---
+
+## Best Practices
+
+1. **Use task() for Everything**: Single API for all operations - simple and consistent
+2. **Pre-Load at Startup**: Use `task_data=None` during initialization for instant first use
+3. **Set Reasonable keep_alive**: Balance memory usage vs reload overhead
+4. **Release on Shutdown**: Call `release_model()` during `cleanup_resources()` for clean shutdown
+5. **Handle Result Pattern**: Always check `result.success` before using data
+6. **Extract Data Safely**: Use `result.data.get("embeddings", [])` to avoid KeyError
+
+---
+
+## Troubleshooting
+
+### Model Not Loading
+
+**Symptoms**: `task()` fails with model loading error
+
+**Solutions**:
+- Verify model name is correct (check Hugging Face Hub)
+- Check device availability (`nvidia-smi` for GPU)
+- Ensure sufficient GPU/CPU memory
+- Check logs for model download progress
+- Try `device="cpu"` for testing
+
+### Out of Memory Errors
+
+**Symptoms**: GPU OOM during model loading or inference
+
+**Solutions**:
+- Use smaller model (e.g., `all-MiniLM-L6-v2` instead of `mxbai-embed-large-v1`)
+- Set `device="cpu"` for smaller models
+- Release unused models with `release_model()`
+- Lower `keep_alive` to free memory sooner
+
+### KeyError When Accessing Results
+
+**Problem**:
+```python
+embeddings = result.data  # Wrong - result.data is a dict
+dimension = len(embeddings[0])  # KeyError: '0'
+```
+
+**Solution**:
+```python
+embeddings = result.data.get("embeddings", [])  # Correct
+dimension = len(embeddings[0]) if embeddings else 0
 ```
 
 ---
 
 ## Hugging Face Authentication
 
-**Public Models**: Most models on Hugging Face Hub are public and require no authentication.
+**Public Models**: Most models require no authentication.
 
-**Private/Gated Models**: Some models require authentication:
-- **Gated models**: Require accepting terms (e.g., Llama 2, Mistral)
-- **Private models**: Organization-specific or user-uploaded private models
+**Private/Gated Models**: Some models require authentication (e.g., Llama 2, Mistral).
 
-**Authentication Setup**:
-
+**Setup**:
 1. Get your token from https://huggingface.co/settings/tokens
 2. Set environment variable in `.env` file:
    ```bash
@@ -931,124 +722,19 @@ class DocumentProcessorService:
    huggingface-cli login
    ```
 
-The framework automatically uses the token when loading models. No code changes needed.
-
----
-
-## Best Practices
-
-1. **Define Requirements in Settings**: Always specify model needs in module Pydantic settings
-2. **Register During Phase 2**: Register models in `initialize()` method, never in `__init__()`
-3. **Store Model IDs**: Keep model_id from registration for later use
-4. **Release on Shutdown**: Call `release_model()` during `cleanup_resources()`
-5. **Share Common Models**: Use same model names across modules for automatic sharing
-6. **Handle Result Pattern**: Always check `result.success` before using data
-7. **Extract Data Correctly**: Use `result.data.get("embeddings", [])` to extract embeddings
-8. **Pass ModelRequirement Directly**: Don't call `.model_dump()` on ModelRequirement
-
----
-
-## Troubleshooting
-
-### Model Not Loading
-
-**Symptoms**: `register_model()` succeeds but embedding generation fails
-
-**Solutions**:
-- Verify model name is correct (Hugging Face format)
-- Check device availability (`nvidia-smi` for GPU)
-- Ensure sufficient GPU/CPU memory
-- Check logs for model download progress
-
-### Out of Memory Errors
-
-**Symptoms**: GPU OOM during model loading or inference
-
-**Solutions**:
-- Reduce `batch_size` in ModelRequirement
-- Use smaller model variants (e.g., "all-MiniLM-L6-v2" instead of "mxbai-embed-large-v1")
-- Release unused models with `release_model()`
-- Enable worker pool to distribute across multiple GPUs
-
-### KeyError When Accessing Results
-
-**Symptoms**: `KeyError: '0'` or similar when processing results
-
-**Solution**:
-```python
-# WRONG - treating result.data as list
-embeddings = result.data
-dimension = len(embeddings[0])  # KeyError: '0'
-
-# CORRECT - extracting from dict
-embeddings = result.data.get("embeddings", [])
-dimension = len(embeddings[0]) if embeddings else 0
-```
-
-### Model Sharing Not Working
-
-**Symptoms**: Same model loaded multiple times
-
-**Solutions**:
-- Verify exact same `name` in model configs across modules
-- Use consistent `model_id` if you want explicit sharing
-- Check reference counts with `get_service_status()`
-
----
-
-## Migration from Old Pattern
-
-If you have existing code using hardcoded model IDs, migrate to the registry pattern:
-
-### Old Pattern (Deprecated)
-
-```python
-# Direct calling with hardcoded "embedding" model
-result = await model_manager.generate_embeddings(
-    texts=documents,
-    model_id="embedding"  # Hardcoded core model
-)
-```
-
-### New Pattern (Current)
-
-```python
-# 1. Define in module settings
-class MyModuleSettings(BaseModel):
-    embedding_model: ModelRequirement = Field(
-        default_factory=lambda: ModelRequirement(
-            model_type="embedding",
-            name="sentence-transformers/all-MiniLM-L6-v2",
-            dimension=384
-        )
-    )
-
-# 2. Register during initialization
-async def initialize(self, settings):
-    result = await model_manager.register_model(
-        model_id=f"{MODULE_ID}_embeddings",
-        model_config=settings.embedding_model,
-        requester_module_id=MODULE_ID
-    )
-    self.model_id = result.data["model_id"]
-
-# 3. Use registered model
-result = await model_manager.generate_embeddings(
-    texts=documents,
-    model_id=self.model_id  # Module-specific registration
-)
-```
+The framework automatically uses the token when loading models.
 
 ---
 
 ## Summary
 
-The model_manager uses a **dynamic registry pattern** where:
-- Modules define their model requirements using `ModelRequirement` schema
-- Models are registered during Phase 2 initialization
-- Model loading happens on-demand on first use
-- Reference counting tracks model lifecycle
-- Multiple modules can share loaded models
-- Worker pool distributes load across GPUs
+The model_manager provides a **unified task() API** where:
 
-This architecture provides clean separation between infrastructure (model_manager) and application logic (modules), while enabling efficient resource management and type-safe configuration.
+- **One method does everything**: `task()` is the single entry point
+- **Self-contained requests**: All config in each call, no registration step
+- **Automatic lifecycle**: Models load on first use, auto-release after inactivity
+- **Pre-loading support**: Use `task_data=None` for instant first use
+- **Transparent reload**: Models auto-recreate after release with fresh config
+- **Clean architecture**: Simple, predictable, LLM-friendly
+
+This design eliminates complexity while providing powerful model management capabilities.

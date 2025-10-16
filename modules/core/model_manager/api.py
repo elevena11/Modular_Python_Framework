@@ -363,17 +363,17 @@ async def get_service_status(service = Depends(get_model_service())):
 @router.get("/models", response_model=ModelStatusResponse)
 async def get_model_status(service = Depends(get_model_service())):
     """
-    Get detailed status information for all loaded models.
-    
+    Get detailed status information for all registered models.
+
     Args:
         service: Model manager service dependency
-    
+
     Returns:
-        ModelStatusResponse with loaded model count, cache size, and detailed model information
+        ModelStatusResponse with registered model count, cache size, and detailed model information
     """
     try:
         result = await service.get_service_status()
-        
+
         if not result.success:
             raise HTTPException(
                 status_code=500,
@@ -382,40 +382,38 @@ async def get_model_status(service = Depends(get_model_service())):
                     message=result.message or "Failed to get model status"
                 ).model_dump()
             )
-        
+
         status_data = result.data
         loaded_models_data = status_data.get("loaded_models", {})
-        
-        # Transform loaded_models data to ModelInfo format
+
+        # Transform loaded_models data to ModelInfo format using new architecture
         models = {}
-        for model_id, model_details in loaded_models_data.items():
-            # Determine device from worker info if available
+        for model_name, model_details in loaded_models_data.items():
+            # Get device from worker info
             device = model_details.get("device", "unknown")
-            if device == "unknown" and model_details.get("source") == "worker_pool":
-                device = model_details.get("device", "unknown")
-            
-            # Set dimension for embedding models
-            dimension = None
-            if model_id == "embedding":  # Known embedding model
-                dimension = 1024  # mixedbread model dimension
-            
-            models[model_id] = {
-                "model_id": model_id,
-                "model_type": "embedding" if model_id == "embedding" else "unknown",
-                "name": model_id,
-                "dimension": dimension,
+
+            # Get model type from registry if available
+            model_type = "unknown"
+            if hasattr(service, 'model_registry') and model_name in service.model_registry:
+                model_type = service.model_registry[model_name].get("model_type", "unknown")
+
+            models[model_name] = {
+                "model_id": model_name,  # model_name IS the identifier in new API
+                "model_type": model_type,
+                "name": model_name,
+                "dimension": None,  # Not tracked at this level
                 "device": device,
                 "references": model_details.get("reference_count", 0),
                 "last_accessed": model_details.get("last_accessed", 0),
                 "created_at": model_details.get("created_at", 0)
             }
-        
+
         return ModelStatusResponse(
             loaded_models=status_data.get("total_loaded_models", 0),
             cache_size=status_data.get("embedding_cache", {}).get("size", 0),
             models=models
         )
-            
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
@@ -425,38 +423,49 @@ async def get_model_status(service = Depends(get_model_service())):
             ).model_dump()
         )
 
-@router.delete("/models/{model_id}", response_model=ModelReleaseResponse)
+@router.delete("/models/{model_name:path}", response_model=ModelReleaseResponse)
 async def release_model(
-    model_id: str,
+    model_name: str,
     service = Depends(get_model_service())
 ):
     """
-    Release a loaded model to free memory resources.
-    
+    Release a registered model to decrement reference count.
+
+    In the new architecture, model_name is the HuggingFace model name
+    (e.g., "sentence-transformers/all-MiniLM-L6-v2", "google-t5/t5-large").
+
+    Note: Uses :path converter to handle slashes in model names.
+
     Args:
-        model_id: Path parameter - ID of the model to release
+        model_name: Path parameter - Name of the model to release (can include slashes)
         service: Model manager service dependency
-    
+
     Returns:
-        ModelReleaseResponse with model ID and remaining reference count
+        ModelReleaseResponse with model name and remaining reference count
     """
     try:
-        result = await service.release_model(model_id)
-        
+        result = await service.release_model(model_name)
+
         if result.success:
+            # Extract remaining references from result
+            remaining_refs = result.data.get("references", 0)
+            if "references" not in result.data:
+                # If model was unloaded, references is 0
+                remaining_refs = 0
+
             return ModelReleaseResponse(
-                model_id=model_id,
-                remaining_references=result.data.get("remaining_references", 0)
+                model_id=model_name,  # Keep as model_id for API compatibility
+                remaining_references=remaining_refs
             )
         else:
             raise HTTPException(
                 status_code=400,
                 detail=ErrorResponse(
                     code=result.code or "RELEASE_FAILED",
-                    message=result.message or f"Failed to release model {model_id}"
+                    message=result.message or f"Failed to release model {model_name}"
                 ).model_dump()
             )
-            
+
     except Exception as e:
         raise HTTPException(
             status_code=500,
