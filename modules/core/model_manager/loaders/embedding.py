@@ -93,8 +93,8 @@ class EmbeddingLoader(BaseLoader):
             # Load SentenceTransformer model with framework's cache directory
             from sentence_transformers import SentenceTransformer
 
-            # Get cache directory from config (defaults to "models" if not set)
-            cache_dir_name = self.config.get("models_cache_dir", "models")
+            # Get cache directory from settings
+            cache_dir_name = self.settings.models_cache_dir
             models_cache_dir = ensure_data_path(cache_dir_name)
 
             model = SentenceTransformer(
@@ -186,8 +186,8 @@ class EmbeddingLoader(BaseLoader):
             try:
                 from huggingface_hub import snapshot_download
 
-                # Get cache directory from config (defaults to "models" if not set)
-                cache_dir_name = self.config.get("models_cache_dir", "models")
+                # Get cache directory from settings
+                cache_dir_name = self.settings.models_cache_dir
                 models_cache_dir = ensure_data_path(cache_dir_name)
 
                 # First, try to load from cache only (no network)

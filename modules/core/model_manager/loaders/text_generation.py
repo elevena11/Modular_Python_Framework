@@ -86,8 +86,8 @@ class TextGenerationLoader(BaseLoader):
             # Load T5 model and tokenizer with framework's cache directory
             from transformers import T5ForConditionalGeneration, AutoTokenizer
 
-            # Get cache directory from config (defaults to "models" if not set)
-            cache_dir_name = self.config.get("models_cache_dir", "models")
+            # Get cache directory from settings
+            cache_dir_name = self.settings.models_cache_dir
             models_cache_dir = ensure_data_path(cache_dir_name)
 
             model = T5ForConditionalGeneration.from_pretrained(
@@ -178,8 +178,8 @@ class TextGenerationLoader(BaseLoader):
             try:
                 from huggingface_hub import snapshot_download
 
-                # Get cache directory from config (defaults to "models" if not set)
-                cache_dir_name = self.config.get("models_cache_dir", "models")
+                # Get cache directory from settings
+                cache_dir_name = self.settings.models_cache_dir
                 models_cache_dir = ensure_data_path(cache_dir_name)
 
                 self.logger.info(f"Downloading model {model_name} to {models_cache_dir} (if not already cached)...")

@@ -11,6 +11,7 @@ from .base import BaseLoader
 from .embedding import EmbeddingLoader
 from .text_generation import TextGenerationLoader
 from core.error_utils import Result
+from ..settings import ModelManagerSettings
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.loaders"
@@ -18,22 +19,22 @@ MODULE_ID = "core.model_manager.loaders"
 
 class LoaderFactory:
     """Factory for automatic model loader selection and instantiation."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, settings: ModelManagerSettings):
         """Initialize loader factory.
-        
+
         Args:
-            config: Configuration dictionary
+            settings: Typed ModelManagerSettings instance
         """
-        self.config = config
+        self.settings = settings
         self.logger = logging.getLogger(f"{MODULE_ID}.factory")
-        
+
         # Initialize all available loaders
         self._loaders: List[BaseLoader] = [
-            EmbeddingLoader(config),
-            TextGenerationLoader(config),
+            EmbeddingLoader(settings),
+            TextGenerationLoader(settings),
         ]
-        
+
         self.logger.info(f"Loader factory initialized with {len(self._loaders)} loaders")
     
     def get_loader_for_model(self, model_id: str) -> Optional[BaseLoader]:

@@ -12,6 +12,7 @@ from .worker import ModelWorker
 from .states import WorkerState
 from .tasks import WorkerTask, WorkerResult
 from core.error_utils import Result, error_message
+from ..settings import ModelManagerSettings
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.workers"
@@ -19,15 +20,15 @@ MODULE_ID = "core.model_manager.workers"
 
 class WorkerPool:
     """Worker pool management with load balancing and scaling."""
-    
-    def __init__(self, config: Dict[str, Any], model_manager_service):
+
+    def __init__(self, settings: ModelManagerSettings, model_manager_service):
         """Initialize worker pool.
 
         Args:
-            config: Configuration dictionary
+            settings: Typed ModelManagerSettings instance
             model_manager_service: Reference to parent model manager
         """
-        self.config = config
+        self.settings = settings
         self.model_manager = model_manager_service
         self.logger = logging.getLogger(f"{MODULE_ID}.pool")
 
@@ -140,7 +141,9 @@ class WorkerPool:
                 }
             }
         """
-        min_free_vram_gb = self.config.get("worker_pool", {}).get("min_free_vram_gb", 6.0)
+        # Note: min_free_vram_gb not in current settings - would need to be added if required
+        # For now, use a reasonable default of 6.0 GB
+        min_free_vram_gb = 6.0
         available_gpus = {}
 
         try:

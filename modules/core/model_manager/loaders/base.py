@@ -9,6 +9,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 from core.error_utils import Result
+from ..settings import ModelManagerSettings
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.loaders"
@@ -16,14 +17,14 @@ MODULE_ID = "core.model_manager.loaders"
 
 class BaseLoader(ABC):
     """Abstract base class for model loaders."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, settings: ModelManagerSettings):
         """Initialize base loader.
-        
+
         Args:
-            config: Configuration dictionary
+            settings: Typed ModelManagerSettings instance
         """
-        self.config = config
+        self.settings = settings
         self.logger = logging.getLogger(f"{MODULE_ID}.{self.__class__.__name__.lower()}")
     
     @abstractmethod
@@ -119,17 +120,21 @@ class BaseLoader(ABC):
     
     def _get_model_config(self, model_id: str, key: str, default=None):
         """Get model-specific configuration value.
-        
+
+        Note: With the current architecture, models are specified at runtime
+        via HuggingFace model names, not pre-configured in settings. This method
+        always returns the default value for backwards compatibility.
+
         Args:
             model_id: Model identifier
             key: Configuration key
             default: Default value if not found
-            
+
         Returns:
-            Configuration value or default
+            Default value (no per-model configs in current architecture)
         """
-        config_key = f"models.{model_id}.{key}"
-        return self.config.get(config_key, default)
+        # No per-model configs in current architecture - models specified at runtime
+        return default
     
     def get_loader_info(self) -> Dict[str, Any]:
         """Get loader information and status.

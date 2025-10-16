@@ -54,5 +54,101 @@ For framework development:
 
 ---
 
+## Semantic Documentation Search
+
+Search documentation using semantic similarity instead of keyword matching.
+
+### Quick Start
+
+**Build search index** (one-time setup):
+```bash
+python docs/rebuild_index.py
+```
+
+**Daemon mode** (recommended - 111x faster):
+```bash
+python docs/search_docs.py --daemon                    # Start in background, returns to shell
+python docs/search_docs.py "how to use model_manager"  # Fast search (~87ms)
+python docs/search_docs.py "database session" --top 10
+python docs/search_docs.py --status                    # Check daemon status
+python docs/search_docs.py --stop                      # Stop daemon
+
+# Watch daemon activity (optional)
+tail -f docs/.doc_index/daemon_*.log
+
+# Run in foreground with terminal output (for debugging)
+python docs/search_docs.py --daemon --tail
+```
+
+**Direct mode** (loads model each time - ~9.7s):
+```bash
+python docs/search_docs.py "query" --direct
+python docs/search_docs.py "pydantic settings" --preview --direct
+```
+
+### How It Works
+
+- **Semantic understanding**: Finds conceptually similar content, not just keyword matches
+- **Model**: `sentence-transformers/all-MiniLM-L6-v2` (lightweight, fast)
+- **Storage**: ChromaDB index in `docs/.doc_index/` (gitignored, user-generated)
+
+### Benefits
+
+Query: "register model" finds:
+- "model registration"
+- "how to add models"
+- "ModelRequirement schema"
+- Related examples and patterns
+
+Traditional keyword search would miss most of these!
+
+### Commands
+
+**rebuild_index.py** - Build/rebuild the search index
+```bash
+python docs/rebuild_index.py
+```
+
+**search_docs.py** - Search documentation semantically
+```bash
+# Daemon commands
+python docs/search_docs.py --daemon     # Start daemon
+python docs/search_docs.py --status     # Check daemon status
+python docs/search_docs.py --stop       # Stop daemon
+
+# Search commands
+python docs/search_docs.py [QUERY] [OPTIONS]
+
+Options:
+  --daemon         Start daemon mode (keeps model loaded)
+  --stop           Stop daemon
+  --status         Check daemon status
+  --direct         Use direct mode (bypass daemon)
+  --top N, -t N    Number of results (default: 5)
+  --preview, -p    Show content preview
+```
+
+### Requirements
+
+- `sentence-transformers` - Embedding model (~80MB download)
+- `chromadb` - Vector database
+
+Already included in framework requirements.
+
+### Performance
+
+- **Daemon mode**: ~87ms per search (111x faster)
+- **Direct mode**: ~9.7s per search (loads model each time)
+- **Model size**: 80MB in VRAM when daemon running
+
+### Tips
+
+- **Use daemon mode**: Start daemon once, get instant searches
+- **Multiple codebases**: Each codebase can run its own daemon simultaneously (unique socket per path)
+- **Rebuild after changes**: Run `rebuild_index.py` after updating docs
+- **Broader queries**: Try general terms if specific queries don't match
+
+---
+
 **Framework Version**: 1.0.3
 **Documentation Last Updated**: September 2025

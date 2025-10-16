@@ -10,6 +10,7 @@ import time
 import hashlib
 from typing import Dict, Any, List, Union
 from core.error_utils import Result
+from ..settings import ModelManagerSettings
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.cache"
@@ -17,14 +18,14 @@ MODULE_ID = "core.model_manager.cache"
 
 class EmbeddingCache:
     """Embedding cache with TTL and memory management."""
-    
-    def __init__(self, config: Dict[str, Any]):
+
+    def __init__(self, settings: ModelManagerSettings):
         """Initialize embedding cache.
-        
+
         Args:
-            config: Configuration dictionary with cache settings
+            settings: Typed ModelManagerSettings instance with cache configuration
         """
-        self.config = config
+        self.settings = settings
         self.logger = logging.getLogger(f"{MODULE_ID}.embedding_cache")
         
         # Cache storage
@@ -44,7 +45,7 @@ class EmbeddingCache:
             Result with cached embeddings or cache miss error
         """
         try:
-            if not self.config.get("embedding_cache", {}).get("enabled", True):
+            if not self.settings.embedding_cache.enabled:
                 return Result.error(code="CACHE_DISABLED", message="Cache is disabled")
             
             # Convert single string to list for uniform processing
@@ -85,18 +86,18 @@ class EmbeddingCache:
     
     async def cache_embeddings(self, texts: Union[str, List[str]], embeddings: Union[List[float], List[List[float]]], model_id: str):
         """Cache embeddings for future use.
-        
+
         Args:
             texts: Text(s) that were embedded
             embeddings: Corresponding embedding results
             model_id: Model ID for cache key generation
         """
         try:
-            if not self.config.get("embedding_cache", {}).get("enabled", True):
+            if not self.settings.embedding_cache.enabled:
                 return
 
             current_time = time.time()
-            max_cache_size = self.config.get("embedding_cache", {}).get("max_cache_size", 10000)
+            max_cache_size = self.settings.embedding_cache.max_cache_size
             
             # Clean old cache entries if needed
             if len(self._embedding_cache) >= max_cache_size:
@@ -131,25 +132,25 @@ class EmbeddingCache:
     
     def _is_cache_valid(self, cache_key: str) -> bool:
         """Check if cache entry is still valid.
-        
+
         Args:
             cache_key: Key to check
-            
+
         Returns:
             True if cache entry is valid
         """
         if cache_key not in self._cache_timestamps:
             return False
 
-        ttl = self.config.get("embedding_cache", {}).get("ttl_seconds", 3600)
+        ttl = self.settings.embedding_cache.ttl_seconds
         return (time.time() - self._cache_timestamps[cache_key]) < ttl
     
     async def _cleanup_cache(self):
         """Clean up old cache entries."""
         try:
             current_time = time.time()
-            ttl = self.config.get("embedding_cache", {}).get("ttl_seconds", 3600)
-            
+            ttl = self.settings.embedding_cache.ttl_seconds
+
             # Find expired entries
             expired_keys = [
                 key for key, timestamp in self._cache_timestamps.items()
@@ -172,12 +173,11 @@ class EmbeddingCache:
         Returns:
             Cache status dictionary
         """
-        cache_config = self.config.get("embedding_cache", {})
         return {
-            "enabled": cache_config.get("enabled", True),
+            "enabled": self.settings.embedding_cache.enabled,
             "cache_size": len(self._embedding_cache),
-            "max_cache_size": cache_config.get("max_cache_size", 10000),
-            "ttl_seconds": cache_config.get("ttl_seconds", 3600)
+            "max_cache_size": self.settings.embedding_cache.max_cache_size,
+            "ttl_seconds": self.settings.embedding_cache.ttl_seconds
         }
     
     def clear_cache(self):

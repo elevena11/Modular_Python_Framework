@@ -125,17 +125,17 @@ class ModelManagerService:
             )
     async def _initialize_components(self):
         """Initialize modular components."""
-        # Convert settings to dict for components that expect dict config
-        config = self.settings.model_dump()
+        # Pass Pydantic settings object directly (Pattern 1)
+        # No model_dump() - components receive typed settings
 
         # Initialize embedding cache
-        self.embedding_cache = EmbeddingCache(config)
+        self.embedding_cache = EmbeddingCache(self.settings)
 
         # Initialize loader factory
-        self.loader_factory = LoaderFactory(config)
+        self.loader_factory = LoaderFactory(self.settings)
 
         # Initialize worker pool
-        self.worker_pool = WorkerPool(config, self)
+        self.worker_pool = WorkerPool(self.settings, self)
 
         self.logger.info("Modular components initialized successfully")
     
@@ -777,8 +777,8 @@ class ModelManagerService:
             
             # Create model reference and store
             model_data = load_result.data
-            config = self.settings.model_dump()
-            model_ref = ModelReference(model_name, model_data, config)
+            # Pass Pydantic settings object directly (Pattern 1)
+            model_ref = ModelReference(model_name, model_data, self.settings)
             self._loaded_models[model_name] = model_ref
             model_ref.add_reference()
             

@@ -142,6 +142,7 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+.doc_index
 
 # ChromaDB
 chroma_db/

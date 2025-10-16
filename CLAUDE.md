@@ -259,7 +259,113 @@ python tools/clear_logs.py            # Clear all log files for clean testing
 
 # Testing
 python -m pytest                      # Run all tests
+
+# Documentation Search (Semantic - 111x faster with daemon mode)
+python docs/rebuild_index.py          # Build search index (one-time or after doc updates)
+python docs/search_docs.py --daemon   # Start daemon (loads model once, ~80MB VRAM)
+python docs/search_docs.py "query"    # Search via daemon (~87ms vs 9.7s direct)
+python docs/search_docs.py "query" --top 10 --preview  # More results with content preview
+python docs/search_docs.py --status   # Check daemon status
+python docs/search_docs.py --stop     # Stop daemon
 ```
+
+## Documentation Search Tool
+
+The framework includes a **semantic documentation search** tool that understands concepts, not just keywords.
+
+### When to Use Semantic Search vs Grep
+
+**Use Semantic Search** (`python docs/search_docs.py`) for:
+- Conceptual queries: "how to use database sessions" → finds `integrity_session` pattern
+- Finding patterns: "register service method" → finds `@service_method` decorator
+- Learning: "phase 2 initialization" → finds all Phase 2 documentation sections
+- Discovering: "pydantic settings" → finds settings system docs across multiple files
+
+**Use Grep** for:
+- Exact string matching: `grep -r "integrity_session" docs/`
+- Code searches: `grep -r "def initialize" modules/`
+- Finding specific function/class names
+
+### Quick Start
+
+**First time setup** (builds search index):
+```bash
+python docs/rebuild_index.py
+```
+
+**Start daemon** (recommended - loads model once):
+```bash
+python docs/search_docs.py --daemon           # Start in background
+python docs/search_docs.py --daemon --tail    # Or run in foreground for debugging
+```
+
+**Search documentation** (uses daemon if running):
+```bash
+# Conceptual queries
+python docs/search_docs.py "database session pattern"         # ~87ms via daemon
+python docs/search_docs.py "phase 2 initialization" --top 5   # vs ~9.7s direct mode
+
+# With content preview
+python docs/search_docs.py "pydantic settings" --preview
+
+# Bypass daemon (slower, but always works)
+python docs/search_docs.py "query" --direct
+```
+
+**Daemon management**:
+```bash
+python docs/search_docs.py --status    # Check if running
+python docs/search_docs.py --stop      # Stop daemon
+tail -f docs/.doc_index/daemon_*.log   # Watch daemon activity
+```
+
+### How It Works
+
+- **Daemon architecture**: Unix socket IPC, model loaded once, instant searches (~87ms)
+- **Chunks by section**: Each markdown section is indexed separately for precision
+- **Semantic similarity**: Finds conceptually related content, not just keyword matches
+- **Model**: `sentence-transformers/all-MiniLM-L6-v2` (lightweight, ~80MB VRAM)
+- **Multi-codebase support**: Path-hashed sockets allow multiple daemons simultaneously
+- **Results format**: `file.md:line >> Section Title` with similarity score and line count
+- **Editor-ready navigation**: Results use `file:line` format for direct editor jumping
+
+### Example Searches
+
+```bash
+# Find database patterns
+python docs/search_docs.py "safe database access"
+→ core/database.md:574 >> Session Management
+   Similarity: 0.592
+   Lines: 6 (315 bytes)
+
+# Find decorator usage
+python docs/search_docs.py "register service method"
+→ core/decorators.md:142 >> @service_method
+   Similarity: 0.810
+   Lines: 18 (687 bytes)
+
+# Understand architecture
+python docs/search_docs.py "two phase initialization"
+→ core/architecture.md:89 >> Two-Phase Initialization
+   Similarity: 0.752
+   Lines: 15 (582 bytes)
+```
+
+### Performance
+
+- **Daemon mode**: ~87ms per search (111x faster)
+- **Direct mode**: ~9.7s per search (loads model each time)
+- **Memory footprint**: ~80MB VRAM when daemon running
+- **Startup time**: ~3-5s to load model and index
+
+### Tips
+
+- **Use daemon mode**: Start once, get instant searches for entire session
+- **Multiple codebases**: Each can run its own daemon simultaneously (unique socket per path)
+- **Rebuild after doc updates**: Run `rebuild_index.py` when documentation changes
+- **Broad queries work better**: "database sessions" > "integrity_session()"
+- **Complements grep**: Use both tools for comprehensive searching
+- **Debugging**: Use `--daemon --tail` to see daemon activity in terminal
 
 ## Development Guidelines
 

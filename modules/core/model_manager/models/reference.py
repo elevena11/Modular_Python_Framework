@@ -6,15 +6,16 @@ Extracted from services.py as part of module refactoring.
 """
 
 import time
-from typing import Dict, Any
+from typing import Any
+from ..settings import ModelManagerSettings
 
 
 class ModelReference:
     """Tracks model usage and references."""
-    def __init__(self, model_id: str, model_instance, model_config: Dict[str, Any]):
+    def __init__(self, model_id: str, model_instance: Any, settings: ModelManagerSettings):
         self.model_id = model_id
         self.model_instance = model_instance
-        self.model_config = model_config
+        self.settings = settings  # Store Pydantic settings object
         self.reference_count = 0
         self.last_accessed = time.time()
         self.created_at = time.time()
