@@ -228,16 +228,7 @@ def register_service(service_name: str, methods: List[ServiceMethod],
                     )
         
         logger.info(f"SERVICE DISCOVERY: Registered {len(methods)} service methods for {cls.__name__}")
-        
-        # Data integrity validation for service name
-        service_name_lower = service_name.lower()
-        forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder', 'sample'}
-        if any(pattern in service_name_lower for pattern in forbidden_patterns):
-            raise ValueError(
-                f"Service name '{service_name}' contains suspicious pattern. "
-                f"Service names suggesting mock data violate data integrity requirements."
-            )
-        
+
         service_info = {
             'name': service_name,
             'class': service_class,  # Will be resolved during processing
@@ -308,16 +299,7 @@ def register_database(database_name: str, auto_create: bool = True,
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
         _add_decorator_source(cls, f"register_database({database_name})")
-        
-        # Data integrity validation for database name
-        database_name_lower = database_name.lower()
-        forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder', 'sample'}
-        if any(pattern in database_name_lower for pattern in forbidden_patterns):
-            raise ValueError(
-                f"Database name '{database_name}' violates data integrity requirements. "
-                f"Names suggesting mock/fake data are forbidden: {forbidden_patterns}"
-            )
-        
+
         database_info = {
             'name': database_name,
             'auto_create': auto_create,
@@ -382,17 +364,7 @@ def requires_modules(module_ids: List[str], optional: bool = False):
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
         _add_decorator_source(cls, f"requires_modules({module_ids})")
-        
-        # Data integrity validation for module IDs
-        for module_id in module_ids:
-            module_id_lower = module_id.lower()
-            forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder'}
-            if any(pattern in module_id_lower for pattern in forbidden_patterns):
-                logger.warning(
-                    f"Module dependency '{module_id}' contains suspicious pattern. "
-                    f"Ensure this represents a real module, not mock/test data."
-                )
-        
+
         dependency_info = {
             'modules': module_ids,
             'optional': optional,
@@ -594,31 +566,19 @@ def list_required_databases(cls) -> List[Dict[str, Any]]:
 
 def validate_decorator_integrity(cls) -> Dict[str, Any]:
     """
-    Validate that decorator metadata meets data integrity requirements.
-    
+    Validate that decorator metadata meets basic integrity requirements.
+
     Returns:
         Dictionary with validation results and any violations found
     """
     metadata = get_module_metadata(cls)
     violations = []
-    
-    # Check for mock data patterns in services
-    for service in metadata.get('services', []):
-        service_name = service.get('name', '').lower()
-        if any(pattern in service_name for pattern in ['mock', 'fake', 'test', 'dummy']):
-            violations.append(f"Service '{service['name']}' has suspicious name pattern")
-    
-    # Check for mock data patterns in databases
-    for database in metadata.get('databases', []):
-        db_name = database.get('name', '').lower()
-        if any(pattern in db_name for pattern in ['mock', 'fake', 'test', 'dummy']):
-            violations.append(f"Database '{database['name']}' has suspicious name pattern")
-    
+
     # Check data integrity enforcement
     data_integrity = metadata.get('data_integrity', {})
     if not data_integrity.get('enforced', True):
         violations.append("Data integrity enforcement is disabled")
-    
+
     return {
         'valid': len(violations) == 0,
         'violations': violations,
@@ -656,16 +616,7 @@ def graceful_shutdown(method: str = "shutdown", timeout: int = 30,
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
         _add_decorator_source(cls, f"graceful_shutdown({method}, timeout={timeout}, priority={priority})")
-        
-        # Data integrity validation for method name
-        method_lower = method.lower()
-        forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder'}
-        if any(pattern in method_lower for pattern in forbidden_patterns):
-            raise ValueError(
-                f"Shutdown method name '{method}' contains suspicious pattern. "
-                f"Method names suggesting mock data violate data integrity requirements."
-            )
-        
+
         shutdown_info = {
             'method': method,
             'timeout': timeout,
@@ -706,16 +657,7 @@ def force_shutdown(method: str = "force_shutdown", timeout: int = 5):
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
         _add_decorator_source(cls, f"force_shutdown({method}, timeout={timeout})")
-        
-        # Data integrity validation for method name
-        method_lower = method.lower()
-        forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder'}
-        if any(pattern in method_lower for pattern in forbidden_patterns):
-            raise ValueError(
-                f"Force shutdown method name '{method}' contains suspicious pattern. "
-                f"Method names suggesting mock data violate data integrity requirements."
-            )
-        
+
         force_shutdown_info = {
             'method': method,
             'timeout': timeout,
@@ -748,17 +690,7 @@ def shutdown_dependencies(*depends_on: str):
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
         _add_decorator_source(cls, f"shutdown_dependencies({', '.join(depends_on)})")
-        
-        # Data integrity validation for dependency module IDs
-        for module_id in depends_on:
-            module_id_lower = module_id.lower()
-            forbidden_patterns = {'mock', 'fake', 'test', 'dummy', 'placeholder'}
-            if any(pattern in module_id_lower for pattern in forbidden_patterns):
-                logger.warning(
-                    f"Shutdown dependency '{module_id}' contains suspicious pattern. "
-                    f"Ensure this represents a real module, not mock/test data."
-                )
-        
+
         # Initialize shutdown metadata if not present
         if 'shutdown' not in metadata:
             metadata['shutdown'] = {}

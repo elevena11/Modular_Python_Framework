@@ -33,19 +33,24 @@ async def create_user_endpoint():
 ```
 **Use for**: Converting Result errors to HTTP exceptions in API endpoints
 
-### 3. `error_message()` - Structured Error Logging
+### 3. `error_message()` - Structured Error Logging with Context
 ```python
 from core.error_utils import error_message
 
 def process_file(file_path: str):
     if not os.path.exists(file_path):
         # error_message() writes to both JSONL logs AND returns formatted string
+        # ALWAYS include context for structured debugging information
         logger.error(error_message(
             module_id="file.processor",
             error_type="FILE_NOT_FOUND",
             details=f"File {file_path} does not exist",
             location="process_file()",
-            context={"file_path": file_path}
+            context={
+                "file_path": file_path,
+                "attempted_operation": "read",
+                "error_type": "FILE_NOT_FOUND"
+            }
         ))
         return Result.error("FILE_NOT_FOUND", "File not found")
 ```
@@ -54,6 +59,7 @@ def process_file(file_path: str):
 - Human-readable logs in app.log for debugging
 - Automatic location detection and error categorization
 - Critical infrastructure and service errors
+- **Always include context parameter** - provides structured debugging information logged separately in JSONL
 
 ---
 
@@ -491,105 +497,49 @@ async def get_user_summary(self, user_id: int) -> Result:
 
 ## Error Logging and Monitoring
 
-### Structured vs Simple Logging
+### Structured Error Logging with Context
 
-The framework supports two types of error logging:
+For all errors that require tracking and analysis, use structured logging with the context parameter:
 
-#### Structured Logging (Recommended for Critical Errors)
 ```python
 from core.error_utils import error_message
 
-# Creates JSONL entry + app.log entry
+# Always include context for structured debugging information
 logger.error(error_message(
     module_id="core.database",
     error_type="CONNECTION_FAILED",
     details="Database connection failed during initialization",
     location="initialize_phase2()",
-    context={"database_url": "sqlite:///data/framework.db", "attempt": 3}
+    context={
+        "database_url": "sqlite:///data/framework.db",
+        "attempt": 3,
+        "retry_policy": "exponential_backoff",
+        "error_type": "ConnectionError"
+    }
 ))
 ```
 
 **Output:**
-- **JSONL file**: `data/error_logs/YYYYMMDD-error.jsonl` (for error_handler analysis)
+- **JSONL file**: `data/error_logs/YYYYMMDD-error.jsonl` (structured data for analysis)
+  - Includes context as separate field for querying and debugging
+  - Timestamp, module_id, error_type, location automatically tracked
 - **App log**: Human-readable formatted message in `app.log`
+  - Message format: `module_database_CONNECTION_FAILED - Database connection failed during initialization in initialize_phase2() [database_url=sqlite:///data/framework.db, attempt=3, retry_policy=exponential_backoff, error_type=ConnectionError]`
 
-#### Simple Logging (For Non-Critical Errors)
-```python
-# Only goes to app.log - no structured tracking
-logger.error("Simple error message")
-logger.warning("Non-critical warning")
-```
-
-**Use structured logging for:**
+**Use structured logging with context for:**
 - Database connection failures
 - Service initialization errors
 - External API failures
 - File system errors
 - Critical business logic failures
+- Model loading/inference errors
+- Any error that needs debugging and analysis
 
-**Use simple logging for:**
-- Debug information
-- Non-critical warnings
-- Performance metrics
-- Development-only messages
-
-### Structured Error Logging
-
-```python
-import logging
-from core.error_utils import Result
-
-class ServiceWithLogging:
-    
-    def __init__(self, app_context):
-        self.app_context = app_context
-        self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
-    
-    async def risky_operation(self, data: dict) -> Result:
-        """Operation with comprehensive error logging."""
-        
-        operation_id = f"op_{int(time.time())}"
-        
-        self.logger.info(f"Starting operation {operation_id}", extra={
-            "operation_id": operation_id,
-            "input_data_keys": list(data.keys())
-        })
-        
-        try:
-            # Your operation logic here
-            result = await self._process_data(data)
-            
-            if result.success:
-                self.logger.info(f"Operation {operation_id} completed successfully", extra={
-                    "operation_id": operation_id,
-                    "result_type": type(result.data).__name__
-                })
-            else:
-                self.logger.warning(f"Operation {operation_id} failed: {result.error_code}", extra={
-                    "operation_id": operation_id,
-                    "error_code": result.error_code,
-                    "error_message": result.message,
-                    "error_details": result.details
-                })
-            
-            return result
-            
-        except Exception as e:
-            self.logger.exception(f"Unexpected error in operation {operation_id}", extra={
-                "operation_id": operation_id,
-                "exception_type": type(e).__name__,
-                "input_data": data
-            })
-            
-            return Result.error(
-                "UNEXPECTED_ERROR",
-                "An unexpected error occurred",
-                details={
-                    "operation_id": operation_id,
-                    "exception": str(e)
-                }
-            )
-```
+**Key benefits of context parameter:**
+- Structured debugging information separate from error message
+- Enables querying error logs for specific conditions (e.g., all errors with attempt > 3)
+- Makes log analysis and monitoring easier
+- Automatic tracking in JSONL format for post-analysis
 
 ## Best Practices
 
