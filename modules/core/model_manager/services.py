@@ -1207,7 +1207,12 @@ class ModelManagerService:
                 details={"error": str(e), "model_name": model_name}
             )
 
-    async def release_model(self, model_name: str) -> Result:
+    async def release_model(
+        self,
+        model_name: str,
+        wait_for_tasks: bool = True,
+        timeout: Optional[float] = None
+    ) -> Result:
         """Stop workers for a model and free VRAM immediately.
 
         Removes registry entry completely. Next request will create fresh entry
@@ -1215,6 +1220,8 @@ class ModelManagerService:
 
         Args:
             model_name: Model identifier to release
+            wait_for_tasks: If True, wait for pending tasks to complete before release
+            timeout: Maximum seconds to wait for queue to drain (None = infinite)
 
         Returns:
             Result with release status
@@ -1236,6 +1243,27 @@ class ModelManagerService:
                     "model_name": model_name,
                     "already_unloaded": True
                 })
+
+            # Wait for pending tasks to complete if requested
+            if wait_for_tasks and self.worker_pool:
+                model_queue = self.worker_pool._model_queues.get(model_name)
+                if model_queue:
+                    self.logger.info(f"Waiting for pending tasks to complete for {model_name}...")
+                    start_time = time.time()
+
+                    while not model_queue.empty():
+                        if timeout and (time.time() - start_time) > timeout:
+                            queue_size = model_queue.qsize()
+                            self.logger.warning(
+                                f"Timeout waiting for {model_name} queue to drain "
+                                f"({queue_size} tasks remaining). Proceeding with release."
+                            )
+                            break
+                        await asyncio.sleep(0.1)  # Check every 100ms
+
+                    if model_queue.empty():
+                        elapsed = time.time() - start_time
+                        self.logger.info(f"Queue for {model_name} drained successfully ({elapsed:.2f}s)")
 
             self.logger.info(f"Releasing model {model_name}, stopping workers and freeing VRAM...")
 
@@ -1264,6 +1292,77 @@ class ModelManagerService:
             return Result.error(
                 code="MODEL_RELEASE_ERROR",
                 message=f"Failed to release model {model_name}",
+                details={"error": str(e)}
+            )
+
+    async def drop_model_queue(
+        self,
+        model_name: str,
+        reason: str = "Manual drop"
+    ) -> Result:
+        """Forcefully drop all pending tasks for a model.
+
+        Use when a large batch was submitted by mistake and needs immediate cancellation.
+        This will cancel all futures waiting for results, notifying callers of the cancellation.
+
+        Args:
+            model_name: Model identifier whose queue to drop
+            reason: Reason for dropping (for logging)
+
+        Returns:
+            Result with number of tasks dropped
+        """
+        try:
+            if not self.worker_pool:
+                return Result.error(
+                    code="WORKER_POOL_NOT_AVAILABLE",
+                    message="Worker pool not available"
+                )
+
+            model_queue = self.worker_pool._model_queues.get(model_name)
+            if not model_queue:
+                return Result.error(
+                    code="NO_QUEUE_FOR_MODEL",
+                    message=f"No queue found for model {model_name}"
+                )
+
+            dropped_count = 0
+            cancelled_futures = 0
+
+            while not model_queue.empty():
+                try:
+                    task = model_queue.get_nowait()
+                    dropped_count += 1
+
+                    # Cancel any futures waiting for this task
+                    if task.task_id in self.worker_pool._pending_tasks:
+                        future = self.worker_pool._pending_tasks.pop(task.task_id)
+                        if not future.done():
+                            future.set_exception(
+                                RuntimeError(f"Task dropped from queue: {reason}")
+                            )
+                            cancelled_futures += 1
+
+                except asyncio.QueueEmpty:
+                    break
+
+            self.logger.warning(
+                f"Dropped {dropped_count} pending task(s) for {model_name} "
+                f"({cancelled_futures} futures cancelled). Reason: {reason}"
+            )
+
+            return Result.success(data={
+                "dropped": dropped_count,
+                "futures_cancelled": cancelled_futures,
+                "model_name": model_name,
+                "reason": reason
+            })
+
+        except Exception as e:
+            self.logger.error(f"Error dropping queue for {model_name}: {e}")
+            return Result.error(
+                code="DROP_QUEUE_ERROR",
+                message=f"Failed to drop queue for {model_name}",
                 details={"error": str(e)}
             )
     
