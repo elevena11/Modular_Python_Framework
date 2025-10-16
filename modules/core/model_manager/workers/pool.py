@@ -913,6 +913,154 @@ class WorkerPool:
                 details={"error": str(e), "model_name": model_name}
             )
 
+    async def scale_model_workers(
+        self,
+        model_name: str,
+        target_workers: int,
+        model_memory_gb: float,
+        device: str = "gpu"
+    ) -> Result:
+        """Scale the number of workers for a specific model.
+
+        If a model already has workers, this method can add or remove workers
+        to reach the target count, without stopping all workers and recreating.
+        This allows dynamic worker scaling without disrupting existing tasks.
+
+        Args:
+            model_name: Model identifier
+            target_workers: Target number of workers
+            model_memory_gb: Model size in GB (for VRAM checking when adding)
+            device: "gpu" (default) or "cpu"
+
+        Returns:
+            Result with scaling status
+        """
+        try:
+            if model_name not in self._model_workers:
+                return Result.error(
+                    code="NO_WORKERS_FOR_MODEL",
+                    message=f"No workers found for model {model_name}",
+                    details={"model_name": model_name}
+                )
+
+            current_workers = self._model_workers[model_name]
+            current_count = len(current_workers)
+
+            if target_workers == current_count:
+                self.logger.debug(f"Model {model_name} already has {current_count} worker(s)")
+                return Result.success(data={
+                    "message": f"Model {model_name} already has {current_count} worker(s)",
+                    "current_workers": current_count,
+                    "target_workers": target_workers,
+                    "workers_added": 0,
+                    "workers_removed": 0
+                })
+
+            elif target_workers > current_count:
+                # Add workers
+                workers_to_add = target_workers - current_count
+                self.logger.info(f"Scaling up {model_name}: adding {workers_to_add} worker(s) ({current_count} -> {target_workers})")
+
+                workers_added = 0
+                model_queue = self._model_queues[model_name]
+
+                if device == "cpu":
+                    # CPU mode: add exactly workers_to_add workers
+                    for i in range(current_count, target_workers):
+                        worker_id = f"{model_name}_worker_{i}"
+                        try:
+                            worker = ModelWorker(worker_id, model_name, "cpu", model_queue, self.model_manager)
+                            if await worker.start():
+                                self._model_workers[model_name].append(worker)
+                                workers_added += 1
+                                self.logger.info(f"Added CPU worker {worker_id} for {model_name}")
+                            else:
+                                self.logger.error(f"Failed to start worker {worker_id}")
+                        except Exception as e:
+                            self.logger.error(f"Error creating worker {worker_id}: {e}")
+
+                else:  # GPU mode
+                    for i in range(current_count, target_workers):
+                        # Select best GPU for this worker
+                        assigned_gpu = self._select_gpu_for_model(model_name, model_memory_gb)
+                        if not assigned_gpu:
+                            self.logger.error(f"No suitable GPU found for worker {i} of {model_name}")
+                            break
+
+                        worker_id = f"{model_name}_worker_{i}"
+                        try:
+                            worker = ModelWorker(worker_id, model_name, assigned_gpu, model_queue, self.model_manager)
+                            if await worker.start():
+                                self._model_workers[model_name].append(worker)
+                                self._gpu_assignments[assigned_gpu].append(worker)
+
+                                # Update VRAM tracking
+                                self._update_vram_on_load(assigned_gpu, model_name, model_memory_gb)
+
+                                workers_added += 1
+                                self.logger.info(f"Added GPU worker {worker_id} for {model_name} on {assigned_gpu}")
+                            else:
+                                self.logger.error(f"Failed to start worker {worker_id}")
+                        except Exception as e:
+                            self.logger.error(f"Error creating worker {worker_id}: {e}")
+
+                return Result.success(data={
+                    "scaled": True,
+                    "direction": "up",
+                    "model_name": model_name,
+                    "current_workers": current_count,
+                    "target_workers": target_workers,
+                    "workers_added": workers_added,
+                    "workers_removed": 0
+                })
+
+            else:
+                # Remove workers
+                workers_to_remove = current_count - target_workers
+                self.logger.info(f"Scaling down {model_name}: removing {workers_to_remove} worker(s) ({current_count} -> {target_workers})")
+
+                workers_removed = 0
+                workers_list = self._model_workers[model_name]
+
+                # Remove from the end (newest workers first)
+                for i in range(workers_to_remove):
+                    if len(workers_list) > target_workers:
+                        worker = workers_list.pop()
+                        try:
+                            await worker.stop()
+                            workers_removed += 1
+                            self.logger.info(f"Removed worker {worker.worker_id} for {model_name}")
+
+                            # Update VRAM tracking if worker was on GPU
+                            if worker.assigned_gpu.startswith("cuda"):
+                                self._update_vram_on_unload(worker.assigned_gpu, model_name)
+
+                            # Remove from GPU assignments
+                            if worker.assigned_gpu in self._gpu_assignments:
+                                if worker in self._gpu_assignments[worker.assigned_gpu]:
+                                    self._gpu_assignments[worker.assigned_gpu].remove(worker)
+
+                        except Exception as e:
+                            self.logger.error(f"Error stopping worker {worker.worker_id}: {e}")
+
+                return Result.success(data={
+                    "scaled": True,
+                    "direction": "down",
+                    "model_name": model_name,
+                    "current_workers": current_count,
+                    "target_workers": target_workers,
+                    "workers_added": 0,
+                    "workers_removed": workers_removed
+                })
+
+        except Exception as e:
+            self.logger.error(f"Error scaling workers for {model_name}: {e}")
+            return Result.error(
+                code="WORKER_SCALING_ERROR",
+                message=f"Failed to scale workers for {model_name}",
+                details={"error": str(e), "model_name": model_name}
+            )
+
     async def shutdown(self):
         """Shutdown the worker pool and clean up all per-model resources."""
         self.logger.info("Shutting down worker pool...")

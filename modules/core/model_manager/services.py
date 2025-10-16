@@ -387,13 +387,37 @@ class ModelManagerService:
         # Check if workers exist
         if self.worker_pool and model_name in self.worker_pool._model_workers:
             workers = self.worker_pool._model_workers[model_name]
-            if len(workers) > 0:
-                # Workers exist and are running - update last activity time
+            current_worker_count = len(workers)
+            if current_worker_count > 0:
+                # Workers exist and are running
                 if model_name in self.model_registry:
                     self.model_registry[model_name]["last_activity"] = time.time()
                     self.model_registry[model_name]["keep_alive_seconds"] = keep_alive_seconds
-                self.logger.debug(f"Reusing {len(workers)} existing worker(s) for {model_name}")
-                return
+
+                # Check if num_workers changed from request
+                if num_workers != current_worker_count:
+                    # Scale workers to match requested count (add or remove as needed)
+                    scale_result = await self.worker_pool.scale_model_workers(
+                        model_name=model_name,
+                        target_workers=num_workers,
+                        model_memory_gb=model_memory_gb,
+                        device=device
+                    )
+
+                    if scale_result.success:
+                        self.logger.info(
+                            f"Scaled {model_name} workers: {current_worker_count} -> {num_workers} "
+                            f"(added: {scale_result.data.get('workers_added', 0)}, "
+                            f"removed: {scale_result.data.get('workers_removed', 0)})"
+                        )
+                        return
+                    else:
+                        self.logger.error(f"Failed to scale workers for {model_name}: {scale_result.error}")
+                        return  # Return on scaling error
+                else:
+                    # Worker count matches request - just reuse existing workers
+                    self.logger.debug(f"Reusing {current_worker_count} existing worker(s) for {model_name}")
+                    return
 
         # Workers don't exist or were stopped - create them
         self.logger.info(f"Creating workers for {model_name} on first use...")
