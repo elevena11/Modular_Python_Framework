@@ -33,7 +33,7 @@ from pathlib import Path
 
 # Configuration
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-INDEX_PATH = Path(__file__).parent / ".doc_index" / "chromadb"
+INDEX_PATH = Path(__file__).parent.parent / ".framework" / "doc_search_index" / "chromadb"
 COLLECTION_NAME = "framework_docs"
 
 # Daemon configuration - unique per codebase
@@ -42,8 +42,8 @@ import hashlib
 _docs_abs_path = str(Path(__file__).parent.resolve())
 _path_hash = hashlib.md5(_docs_abs_path.encode()).hexdigest()[:8]
 SOCKET_PATH = f"/tmp/doc_search_daemon_{_path_hash}.sock"
-PID_FILE = Path(__file__).parent / ".doc_index" / f"daemon_{_path_hash}.pid"
-LOG_FILE = Path(__file__).parent / ".doc_index" / f"daemon_{_path_hash}.log"
+PID_FILE = Path(__file__).parent.parent / ".framework" / "doc_search_index" / f"daemon_{_path_hash}.pid"
+LOG_FILE = Path(__file__).parent.parent / ".framework" / "doc_search_index" / f"daemon_{_path_hash}.log"
 
 
 def check_daemon_running():

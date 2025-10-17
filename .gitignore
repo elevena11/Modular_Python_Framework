@@ -142,7 +142,6 @@ data/
 *.db
 *.sqlite
 *.sqlite3
-.doc_index
 
 # ChromaDB
 chroma_db/
@@ -192,5 +191,6 @@ Thumbs.db
 historical_data/
 bulk_data/
 
-# Framework Backups (created by update system)
-.framework_backups/
+# Framework-managed artifacts (index, backups, cache, temp files)
+# Single pattern covers all framework-generated content
+.framework/

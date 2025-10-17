@@ -417,7 +417,7 @@ class BackupManager:
 
     def __init__(self, project_root: Path):
         self.project_root = project_root
-        self.backup_root = project_root / ".framework_backups"
+        self.backup_root = project_root / ".framework" / "backups"
 
     def create_backup_dir(self, version: str) -> Path:
         """Create backup directory for a version.

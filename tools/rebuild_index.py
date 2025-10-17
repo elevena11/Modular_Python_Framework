@@ -18,7 +18,7 @@ from chromadb.config import Settings as ChromaSettings
 
 # Configuration
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-INDEX_PATH = Path(__file__).parent / ".doc_index" / "chromadb"
+INDEX_PATH = Path(__file__).parent.parent / ".framework" / "doc_search_index" / "chromadb"
 COLLECTION_NAME = "framework_docs"
 
 # Chunking strategy: "whole" or "sections"
