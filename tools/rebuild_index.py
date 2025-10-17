@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-docs/rebuild_index.py
+tools/rebuild_index.py
 Rebuild documentation search index.
 
 Standalone tool - no framework dependencies.
 Scans all .md files in docs/ and creates ChromaDB index for semantic search.
 
 Usage:
-    python docs/rebuild_index.py
+    python tools/rebuild_index.py
 """
 
 from pathlib import Path

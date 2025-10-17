@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-docs/search_docs.py
+tools/search_docs.py
 Semantic documentation search tool with daemon mode.
 
 Standalone tool - no framework dependencies.
@@ -8,13 +8,13 @@ Search indexed documentation using semantic similarity.
 
 Usage:
     # Daemon mode (keeps model loaded)
-    python docs/search_docs.py --daemon          # Start daemon
-    python docs/search_docs.py "query"           # Fast search via daemon
-    python docs/search_docs.py --stop            # Stop daemon
+    python tools/search_docs.py --daemon          # Start daemon
+    python tools/search_docs.py "query"           # Fast search via daemon
+    python tools/search_docs.py --stop            # Stop daemon
 
     # Direct mode (loads model each time)
-    python docs/search_docs.py "query" --direct
-    python docs/search_docs.py "query" --top 10 --preview
+    python tools/search_docs.py "query" --direct
+    python tools/search_docs.py "query" --top 10 --preview
 """
 
 import sys
@@ -79,7 +79,7 @@ def start_daemon(foreground=False):
         print(f"PID: {PID_FILE.read_text().strip()}")
         print(f"Log: {LOG_FILE}")
         print()
-        print("Use 'python docs/search_docs.py --stop' to stop it")
+        print("Use 'python tools/search_docs.py --stop' to stop it")
         sys.exit(1)
 
     # Check if index exists
@@ -87,7 +87,7 @@ def start_daemon(foreground=False):
         print("Error: Documentation index not found!")
         print()
         print("Please build the index first:")
-        print("  python docs/rebuild_index.py")
+        print("  python tools/rebuild_index.py")
         sys.exit(1)
 
     # If background mode, fork process
@@ -108,8 +108,8 @@ def start_daemon(foreground=False):
                     print(f"Socket: {SOCKET_PATH}")
                     print(f"Log: {LOG_FILE}")
                     print()
-                    print("Use 'python docs/search_docs.py --status' to check status")
-                    print("Use 'python docs/search_docs.py --stop' to stop daemon")
+                    print("Use 'python tools/search_docs.py --status' to check status")
+                    print("Use 'python tools/search_docs.py --stop' to stop daemon")
                     sys.exit(0)
 
             # Timeout - daemon didn't start
@@ -171,8 +171,8 @@ def start_daemon(foreground=False):
     print(f"Socket: {SOCKET_PATH}")
     print()
     print("Usage:")
-    print("  python docs/search_docs.py 'your query'")
-    print("  python docs/search_docs.py --stop")
+    print("  python tools/search_docs.py 'your query'")
+    print("  python tools/search_docs.py --stop")
     print("=" * 50)
     print()
     print("Ready to accept queries (Ctrl+C to stop)...")
@@ -323,10 +323,10 @@ def search_via_daemon(query: str, top_k: int = 5, show_preview: bool = False):
         print("Error: Daemon is not running")
         print()
         print("Start the daemon first:")
-        print("  python docs/search_docs.py --daemon")
+        print("  python tools/search_docs.py --daemon")
         print()
         print("Or use direct mode:")
-        print("  python docs/search_docs.py 'query' --direct")
+        print("  python tools/search_docs.py 'query' --direct")
         sys.exit(1)
 
     try:
@@ -358,8 +358,8 @@ def search_via_daemon(query: str, top_k: int = 5, show_preview: bool = False):
         print(f"Error communicating with daemon: {e}")
         print()
         print("Try restarting the daemon:")
-        print("  python docs/search_docs.py --stop")
-        print("  python docs/search_docs.py --daemon")
+        print("  python tools/search_docs.py --stop")
+        print("  python tools/search_docs.py --daemon")
         sys.exit(1)
 
 
@@ -375,7 +375,7 @@ def search_direct(query: str, top_k: int = 5, show_preview: bool = False):
         print("Error: Documentation index not found!")
         print()
         print("Please build the index first:")
-        print("  python docs/rebuild_index.py")
+        print("  python tools/rebuild_index.py")
         sys.exit(1)
 
     # Load model
@@ -471,25 +471,25 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Daemon Mode (Recommended):
-  python docs/search_docs.py --daemon          # Start daemon (loads model once)
-  python docs/search_docs.py "your query"      # Fast search via daemon
-  python docs/search_docs.py --stop            # Stop daemon
+  python tools/search_docs.py --daemon          # Start daemon (loads model once)
+  python tools/search_docs.py "your query"      # Fast search via daemon
+  python tools/search_docs.py --stop            # Stop daemon
 
 Direct Mode:
-  python docs/search_docs.py "query" --direct  # Load model each time
-  python docs/search_docs.py "query" --top 10 --preview
+  python tools/search_docs.py "query" --direct  # Load model each time
+  python tools/search_docs.py "query" --top 10 --preview
 
 Examples:
   # Start daemon
-  python docs/search_docs.py --daemon
+  python tools/search_docs.py --daemon
 
   # Search (uses daemon if running, otherwise prompts to start)
-  python docs/search_docs.py "how to register models"
-  python docs/search_docs.py "database session" --top 10
-  python docs/search_docs.py "pydantic settings" --preview
+  python tools/search_docs.py "how to register models"
+  python tools/search_docs.py "database session" --top 10
+  python tools/search_docs.py "pydantic settings" --preview
 
   # Stop daemon
-  python docs/search_docs.py --stop
+  python tools/search_docs.py --stop
         """
     )
 

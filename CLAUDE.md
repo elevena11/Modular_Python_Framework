@@ -261,12 +261,12 @@ python tools/clear_logs.py            # Clear all log files for clean testing
 python -m pytest                      # Run all tests
 
 # Documentation Search (Semantic - 111x faster with daemon mode)
-python docs/rebuild_index.py          # Build search index (one-time or after doc updates)
-python docs/search_docs.py --daemon   # Start daemon (loads model once, ~80MB VRAM)
-python docs/search_docs.py "query"    # Search via daemon (~87ms vs 9.7s direct)
-python docs/search_docs.py "query" --top 10 --preview  # More results with content preview
-python docs/search_docs.py --status   # Check daemon status
-python docs/search_docs.py --stop     # Stop daemon
+python tools/rebuild_index.py          # Build search index (one-time or after doc updates)
+python tools/search_docs.py --daemon   # Start daemon (loads model once, ~80MB VRAM)
+python tools/search_docs.py "query"    # Search via daemon (~87ms vs 9.7s direct)
+python tools/search_docs.py "query" --top 10 --preview  # More results with content preview
+python tools/search_docs.py --status   # Check daemon status
+python tools/search_docs.py --stop     # Stop daemon
 ```
 
 ## Documentation Search Tool
@@ -275,7 +275,7 @@ The framework includes a **semantic documentation search** tool that understands
 
 ### When to Use Semantic Search vs Grep
 
-**Use Semantic Search** (`python docs/search_docs.py`) for:
+**Use Semantic Search** (`python tools/search_docs.py`) for:
 - Conceptual queries: "how to use database sessions" → finds `integrity_session` pattern
 - Finding patterns: "register service method" → finds `@service_method` decorator
 - Learning: "phase 2 initialization" → finds all Phase 2 documentation sections
@@ -290,32 +290,32 @@ The framework includes a **semantic documentation search** tool that understands
 
 **First time setup** (builds search index):
 ```bash
-python docs/rebuild_index.py
+python tools/rebuild_index.py
 ```
 
 **Start daemon** (recommended - loads model once):
 ```bash
-python docs/search_docs.py --daemon           # Start in background
-python docs/search_docs.py --daemon --tail    # Or run in foreground for debugging
+python tools/search_docs.py --daemon           # Start in background
+python tools/search_docs.py --daemon --tail    # Or run in foreground for debugging
 ```
 
 **Search documentation** (uses daemon if running):
 ```bash
 # Conceptual queries
-python docs/search_docs.py "database session pattern"         # ~87ms via daemon
-python docs/search_docs.py "phase 2 initialization" --top 5   # vs ~9.7s direct mode
+python tools/search_docs.py "database session pattern"         # ~87ms via daemon
+python tools/search_docs.py "phase 2 initialization" --top 5   # vs ~9.7s direct mode
 
 # With content preview
-python docs/search_docs.py "pydantic settings" --preview
+python tools/search_docs.py "pydantic settings" --preview
 
 # Bypass daemon (slower, but always works)
-python docs/search_docs.py "query" --direct
+python tools/search_docs.py "query" --direct
 ```
 
 **Daemon management**:
 ```bash
-python docs/search_docs.py --status    # Check if running
-python docs/search_docs.py --stop      # Stop daemon
+python tools/search_docs.py --status    # Check if running
+python tools/search_docs.py --stop      # Stop daemon
 tail -f docs/.doc_index/daemon_*.log   # Watch daemon activity
 ```
 
@@ -333,19 +333,19 @@ tail -f docs/.doc_index/daemon_*.log   # Watch daemon activity
 
 ```bash
 # Find database patterns
-python docs/search_docs.py "safe database access"
+python tools/search_docs.py "safe database access"
 → core/database.md:574 >> Session Management
    Similarity: 0.592
    Lines: 6 (315 bytes)
 
 # Find decorator usage
-python docs/search_docs.py "register service method"
+python tools/search_docs.py "register service method"
 → core/decorators.md:142 >> @service_method
    Similarity: 0.810
    Lines: 18 (687 bytes)
 
 # Understand architecture
-python docs/search_docs.py "two phase initialization"
+python tools/search_docs.py "two phase initialization"
 → core/architecture.md:89 >> Two-Phase Initialization
    Similarity: 0.752
    Lines: 15 (582 bytes)

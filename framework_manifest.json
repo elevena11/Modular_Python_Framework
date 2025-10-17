@@ -1,6 +1,6 @@
 {
   "version": "1.0.6",
-  "generated_at": "2025-10-17T11:49:18.643729",
+  "generated_at": "2025-10-17T14:18:53.739293",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
@@ -31,8 +31,6 @@
     "docs/core/module-development-guide.md",
     "docs/core/settings.md",
     "docs/core/streamlit-ui.md",
-    "docs/rebuild_index.py",
-    "docs/search_docs.py",
     "framework_manifest.json",
     "install_dependencies.py",
     "modules/core/auth",
@@ -179,8 +177,10 @@
     "tools/module_dependency_test.py",
     "tools/pre_runtime_validation.py",
     "tools/pytest_compliance.py",
+    "tools/rebuild_index.py",
     "tools/scaffold_module.py",
     "tools/scaffold_module_backup.py",
+    "tools/search_docs.py",
     "tools/test_module.py",
     "tools/test_update_system.py",
     "tools/workflow",

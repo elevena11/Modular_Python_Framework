@@ -62,28 +62,28 @@ Search documentation using semantic similarity instead of keyword matching.
 
 **Build search index** (one-time setup):
 ```bash
-python docs/rebuild_index.py
+python tools/rebuild_index.py
 ```
 
 **Daemon mode** (recommended - 111x faster):
 ```bash
-python docs/search_docs.py --daemon                    # Start in background, returns to shell
-python docs/search_docs.py "how to use model_manager"  # Fast search (~87ms)
-python docs/search_docs.py "database session" --top 10
-python docs/search_docs.py --status                    # Check daemon status
-python docs/search_docs.py --stop                      # Stop daemon
+python tools/search_docs.py --daemon                    # Start in background, returns to shell
+python tools/search_docs.py "how to use model_manager"  # Fast search (~87ms)
+python tools/search_docs.py "database session" --top 10
+python tools/search_docs.py --status                    # Check daemon status
+python tools/search_docs.py --stop                      # Stop daemon
 
 # Watch daemon activity (optional)
 tail -f docs/.doc_index/daemon_*.log
 
 # Run in foreground with terminal output (for debugging)
-python docs/search_docs.py --daemon --tail
+python tools/search_docs.py --daemon --tail
 ```
 
 **Direct mode** (loads model each time - ~9.7s):
 ```bash
-python docs/search_docs.py "query" --direct
-python docs/search_docs.py "pydantic settings" --preview --direct
+python tools/search_docs.py "query" --direct
+python tools/search_docs.py "pydantic settings" --preview --direct
 ```
 
 ### How It Works
@@ -106,18 +106,18 @@ Traditional keyword search would miss most of these!
 
 **rebuild_index.py** - Build/rebuild the search index
 ```bash
-python docs/rebuild_index.py
+python tools/rebuild_index.py
 ```
 
 **search_docs.py** - Search documentation semantically
 ```bash
 # Daemon commands
-python docs/search_docs.py --daemon     # Start daemon
-python docs/search_docs.py --status     # Check daemon status
-python docs/search_docs.py --stop       # Stop daemon
+python tools/search_docs.py --daemon     # Start daemon
+python tools/search_docs.py --status     # Check daemon status
+python tools/search_docs.py --stop       # Stop daemon
 
 # Search commands
-python docs/search_docs.py [QUERY] [OPTIONS]
+python tools/search_docs.py [QUERY] [OPTIONS]
 
 Options:
   --daemon         Start daemon mode (keeps model loaded)
