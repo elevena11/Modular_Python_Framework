@@ -13,7 +13,7 @@ class Config(BaseSettings):
     
     # Application settings
     APP_NAME: str = os.getenv("APP_NAME", "Modular Python Framework")
-    APP_VERSION: str = "1.0.0"  # Framework version
+    # Note: APP_VERSION removed - use get_framework_version() from core.version instead
     DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
     
     # Network configuration

@@ -19,6 +19,7 @@ from core.module_manager import ModuleManager
 from core.config import settings
 from core.logging import setup_framework_logging
 from core.bootstrap import run_bootstrap_phase
+from core.version import get_framework_version
 
 # Initialize framework-aware logging first
 setup_framework_logging()
@@ -41,7 +42,7 @@ async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle."""
     try:
         # Startup
-        logger.info(f"Starting {settings.APP_NAME} v{settings.APP_VERSION}...")
+        logger.info(f"Starting {settings.APP_NAME} v{get_framework_version()}...")
         logger.info(f"Data directory: {settings.DATA_DIR}")
         
         # Create app context with clean service container
@@ -94,7 +95,7 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.error(f"{router_info['module_id']}: Failed to register router - {e}")
         
-        logger.info(f"{settings.APP_NAME} v{settings.APP_VERSION} started successfully")
+        logger.info(f"{settings.APP_NAME} v{get_framework_version()} started successfully")
         logger.info(f"Uvicorn server starting on http://{settings.HOST}:{settings.PORT}")
         logger.info("Application startup complete - Ready to serve requests")
         
@@ -128,7 +129,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     description=f"{settings.APP_NAME} - Truth Verification System",
-    version=settings.APP_VERSION,
+    version=get_framework_version(),
     lifespan=lifespan
 )
 
@@ -146,7 +147,7 @@ async def root():
     """Root endpoint."""
     return {
         "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
+        "version": get_framework_version(),
         "status": "running",
         "message": f"{settings.APP_NAME} API is operational"
     }
@@ -157,7 +158,7 @@ async def health_check():
     return {
         "status": "healthy",
         "timestamp": datetime.now().isoformat(),
-        "version": settings.APP_VERSION
+        "version": get_framework_version()
     }
 
 if __name__ == "__main__":
