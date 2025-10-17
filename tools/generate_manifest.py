@@ -34,6 +34,8 @@ class ManifestGenerator:
             "requirements.txt",
             "framework_manifest.json",  # Include the manifest itself
             ".env.example",
+            # Note: .gitignore excluded - shared ownership between framework and user
+            # Users must manually add new framework patterns from release notes
             "CLAUDE.md",
             "core/",
             "modules/core/",
