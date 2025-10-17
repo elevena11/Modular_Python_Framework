@@ -155,11 +155,8 @@ class ModelManagerSettings(BaseModel):
         }
     )
 
-    # Model storage configuration
-    models_cache_dir: str = Field(
-        default="models",
-        description="Directory within data/ for caching downloaded models"
-    )
+    # Note: Models now use default HuggingFace cache (~/.cache/huggingface/)
+    # for better ecosystem compatibility and to avoid duplicate downloads
 
     # Global hardware settings
     device_preference: GlobalDevicePreference = Field(

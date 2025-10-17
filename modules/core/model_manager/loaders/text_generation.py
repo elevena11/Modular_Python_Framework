@@ -9,7 +9,6 @@ import logging
 from typing import Dict, Any
 from .base import BaseLoader
 from core.error_utils import Result
-from core.paths import ensure_data_path
 
 # Module identity for logging
 MODULE_ID = "core.model_manager.loaders"
@@ -83,20 +82,14 @@ class TextGenerationLoader(BaseLoader):
 
             self.logger.info(f"Loading T5 model {model_name} on {device}")
 
-            # Load T5 model and tokenizer with framework's cache directory
+            # Load T5 model and tokenizer (uses default HuggingFace cache)
             from transformers import T5ForConditionalGeneration, AutoTokenizer
 
-            # Get cache directory from settings
-            cache_dir_name = self.settings.models_cache_dir
-            models_cache_dir = ensure_data_path(cache_dir_name)
-
             model = T5ForConditionalGeneration.from_pretrained(
-                model_name,
-                cache_dir=models_cache_dir
+                model_name
             ).to(device)
             tokenizer = AutoTokenizer.from_pretrained(
-                model_name,
-                cache_dir=models_cache_dir
+                model_name
             )
             
             # Test model with sample input to validate loading
@@ -178,17 +171,12 @@ class TextGenerationLoader(BaseLoader):
             try:
                 from huggingface_hub import snapshot_download
 
-                # Get cache directory from settings
-                cache_dir_name = self.settings.models_cache_dir
-                models_cache_dir = ensure_data_path(cache_dir_name)
-
-                self.logger.info(f"Downloading model {model_name} to {models_cache_dir} (if not already cached)...")
+                self.logger.info(f"Downloading model {model_name} to default HuggingFace cache (if not already cached)...")
 
                 # Download to cache (or verify cache if already exists)
                 # This does NOT load the model into memory
                 cache_dir = snapshot_download(
                     repo_id=model_name,
-                    cache_dir=models_cache_dir,
                     local_files_only=False,  # Allow download if not cached
                     resume_download=True,     # Resume if interrupted
                 )
