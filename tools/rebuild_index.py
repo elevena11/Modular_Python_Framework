@@ -18,7 +18,6 @@ from chromadb.config import Settings as ChromaSettings
 
 # Configuration
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MODEL_CACHE_DIR = "data/models/"  # Matches framework default
 INDEX_PATH = Path(__file__).parent / ".doc_index" / "chromadb"
 COLLECTION_NAME = "framework_docs"
 
@@ -85,7 +84,7 @@ def rebuild_index():
 
     # Initialize model
     print("Loading embedding model...")
-    model = SentenceTransformer(MODEL_NAME, cache_folder=MODEL_CACHE_DIR)
+    model = SentenceTransformer(MODEL_NAME)
     print(f"Model loaded (dimension: {model.get_sentence_embedding_dimension()})")
     print()
 

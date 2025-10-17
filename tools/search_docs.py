@@ -33,7 +33,6 @@ from pathlib import Path
 
 # Configuration
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-MODEL_CACHE_DIR = "data/models/"  # Matches framework default
 INDEX_PATH = Path(__file__).parent / ".doc_index" / "chromadb"
 COLLECTION_NAME = "framework_docs"
 
@@ -134,7 +133,7 @@ def start_daemon(foreground=False):
 
     # Load model
     print(f"Loading model: {MODEL_NAME}", flush=True)
-    model = SentenceTransformer(MODEL_NAME, cache_folder=MODEL_CACHE_DIR)
+    model = SentenceTransformer(MODEL_NAME)
     print(f"Model loaded (dimension: {model.get_sentence_embedding_dimension()})", flush=True)
 
     # Load ChromaDB
@@ -380,7 +379,7 @@ def search_direct(query: str, top_k: int = 5, show_preview: bool = False):
 
     # Load model
     print(f"Loading model: {MODEL_NAME}...")
-    model = SentenceTransformer(MODEL_NAME, cache_folder=MODEL_CACHE_DIR)
+    model = SentenceTransformer(MODEL_NAME)
 
     # Load ChromaDB
     client = chromadb.PersistentClient(
