@@ -111,9 +111,14 @@ def rebuild_index():
     print(f"Created collection: {COLLECTION_NAME}")
     print()
 
-    # Find all markdown files
-    docs_dir = Path(__file__).parent
+    # Find all markdown files in docs/ directory
+    project_root = Path(__file__).parent.parent  # Parent of tools/
+    docs_dir = project_root / "docs"
     markdown_files = []
+
+    if not docs_dir.exists():
+        print(f"Error: docs/ directory not found at {docs_dir}")
+        return
 
     for md_file in docs_dir.rglob("*.md"):
         # Skip hidden directories (like .doc_index)
@@ -210,7 +215,7 @@ def rebuild_index():
     print(f"Index location: {INDEX_PATH}")
     print()
     print("Usage:")
-    print("  python docs/search_docs.py 'your search query'")
+    print("  python tools/search_docs.py 'your search query'")
     print()
 
 
