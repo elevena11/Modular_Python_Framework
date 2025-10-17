@@ -1,6 +1,6 @@
 {
-  "version": "1.0.6",
-  "generated_at": "2025-10-17T14:18:53.739293",
+  "version": "1.0.7",
+  "generated_at": "2025-10-17T16:57:53.614158",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
@@ -27,6 +27,7 @@
     "docs/core/development-tools.md",
     "docs/core/error-handling.md",
     "docs/core/framework-updates.md",
+    "docs/core/framework_updates.md",
     "docs/core/model_manager.md",
     "docs/core/module-development-guide.md",
     "docs/core/settings.md",
@@ -229,6 +230,6 @@
     "ui/utils/security.py",
     "update_core.py"
   ],
-  "file_count": 226,
+  "file_count": 227,
   "generator": "tools/generate_manifest.py"
 }
