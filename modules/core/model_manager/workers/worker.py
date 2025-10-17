@@ -276,13 +276,16 @@ class ModelWorker:
 
             loader_factory = self.model_manager.loader_factory
 
-            # Get model_type from registry (required for explicit loader selection)
+            # Get model_type from lifecycle_manager registry (required for explicit loader selection)
             model_type = None
-            if hasattr(self.model_manager, 'model_registry') and self.model_name in self.model_manager.model_registry:
-                model_type = self.model_manager.model_registry[self.model_name].get("model_type")
-                self.logger.info(f"Retrieved model_type '{model_type}' from registry for {self.model_name}")
+            if (hasattr(self.model_manager, 'lifecycle_manager') and
+                self.model_manager.lifecycle_manager and
+                hasattr(self.model_manager.lifecycle_manager, 'model_registry') and
+                self.model_name in self.model_manager.lifecycle_manager.model_registry):
+                model_type = self.model_manager.lifecycle_manager.model_registry[self.model_name].get("model_type")
+                self.logger.info(f"Retrieved model_type '{model_type}' from lifecycle_manager registry for {self.model_name}")
             else:
-                self.logger.warning(f"Model {self.model_name} not found in registry, loader will auto-detect")
+                self.logger.warning(f"Model {self.model_name} not found in lifecycle_manager registry, loader will auto-detect")
 
             # Load model on assigned GPU with explicit model_type
             self.logger.info(f"Loading model {self.model_name} (type: {model_type}) on {self.assigned_gpu} via LoaderFactory")

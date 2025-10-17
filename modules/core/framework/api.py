@@ -56,16 +56,6 @@ from .api_schemas import SessionInfoResponse, FrameworkStatusResponse, Framework
         tags=["phase2", "initialization"]
     ),
     ServiceMethod(
-        name="get_config",
-        description="Get framework configuration information",
-        params=[],
-        returns=ServiceReturn("Result", "Result with framework configuration data"),
-        examples=[
-            ServiceExample("get_config()", "Result.success(data={'app_title': 'Reality Anchor Hub', 'version': '0.1.0'})"),
-        ],
-        tags=["config", "info"]
-    ),
-    ServiceMethod(
         name="get_typed_settings",
         description="Get typed framework settings as validated Pydantic model",
         params=[],

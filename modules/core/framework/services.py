@@ -27,9 +27,8 @@ class FrameworkService:
         self.app_context = app_context
         self.logger = logger
         self.initialized = False
-        self.config = {}  # Backward compatibility dict
         self.settings = None  # Typed Pydantic settings
-        
+
         self.logger.info(f"{MODULE_ID} service instance created (pre-Phase 2)")
     
     async def initialize(self, settings: FrameworkSettings = None) -> bool:
@@ -49,21 +48,17 @@ class FrameworkService:
         
         try:
             if settings:
-                # Store typed settings - convert to dict for backward compatibility
-                self.config = settings.model_dump()
-                
                 # Store the Pydantic instance for type-safe access
                 self.settings = settings
-                
+
                 self.logger.info(f"Framework configured: {settings.app_title} v{settings.app_version} "
                                f"({settings.environment} mode)")
                 self.logger.info(f"API available at: {settings.api_base_url}")
-                
+
                 if settings.debug_mode:
                     self.logger.debug(f"Debug mode enabled with {settings.log_level} logging")
             else:
-                self.logger.warning(f"{MODULE_ID}: No settings provided, using empty config")
-                self.config = {}
+                self.logger.warning(f"{MODULE_ID}: No settings provided, using defaults")
                 self.settings = FrameworkSettings()  # Use defaults
             
             # Mark as initialized
@@ -78,36 +73,7 @@ class FrameworkService:
                 details=f"Error during service initialization: {str(e)}"
             ))
             return False
-    
-    def get_config(self) -> Result:
-        """
-        Get the current global configuration (legacy dict format).
-        
-        Returns:
-            Result: Success with config data or error
-        """
-        # Check initialization
-        if not self.initialized:
-            return Result.error(
-                code=f"{MODULE_ID}_SERVICE_NOT_INITIALIZED",
-                message=f"{MODULE_ID} service not initialized"
-            )
-            
-        try:
-            return Result.success(data=self.config)
-        except Exception as e:
-            self.logger.error(error_message(
-                module_id=MODULE_ID,
-                error_type="CONFIG_ERROR",
-                details=f"Error retrieving config: {str(e)}"
-            ))
-            
-            return Result.error(
-                code=f"{MODULE_ID}_CONFIG_ERROR",
-                message="Failed to retrieve configuration",
-                details={"error": str(e)}
-            )
-    
+
     def get_typed_settings(self) -> Result:
         """
         Get the current typed Pydantic settings.
@@ -213,7 +179,6 @@ class FrameworkService:
         Called during normal application shutdown via @graceful_shutdown decorator.
         """
         # Framework service cleanup
-        self.config.clear()
         self.settings = None
         self.initialized = False
     
@@ -224,7 +189,6 @@ class FrameworkService:
         """
         # Force cleanup - clear all state
         try:
-            self.config.clear()
             self.settings = None
         except Exception:
             pass
