@@ -145,8 +145,8 @@ def rebuild_index():
                 print(f"[{i}/{len(markdown_files)}] SKIP (empty): {md_file.name}")
                 continue
 
-            # Generate relative path
-            relative_path = md_file.relative_to(docs_dir)
+            # Generate relative path (include docs/ prefix)
+            relative_path = md_file.relative_to(project_root)
 
             if CHUNKING_STRATEGY == "sections":
                 # Split into sections
