@@ -16,17 +16,18 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Dict, Any
 import argparse
+import fnmatch
 
 class ManifestGenerator:
     """Generates manifest of framework files for release."""
     
     def __init__(self, project_root: str = "."):
         self.project_root = Path(project_root).resolve()
-        
+
         # Directories and files that are part of the framework
         self.framework_patterns = [
             "app.py",
-            "run_ui.py", 
+            "run_ui.py",
             "setup_db.py",
             "update_core.py",
             "install_dependencies.py",
@@ -40,25 +41,81 @@ class ManifestGenerator:
             "ui/",
             "docs/"
         ]
-        
-        # Patterns to exclude from framework files
-        self.exclude_patterns = [
-            "__pycache__",
+
+        # Load gitignore patterns
+        self.gitignore_patterns = self._load_gitignore()
+
+        # Additional patterns to exclude (beyond gitignore)
+        self.additional_excludes = [
             "*.pyc",
             "*.pyo",
-            ".DS_Store",
-            "Thumbs.db",
-            "*.log"
+            "*.pyd",
+            "__pycache__"
         ]
-    
+
+    def _load_gitignore(self) -> List[str]:
+        """Load and parse .gitignore file."""
+        gitignore_file = self.project_root / ".gitignore"
+        patterns = []
+
+        if not gitignore_file.exists():
+            print("⚠️  No .gitignore file found")
+            return patterns
+
+        try:
+            with open(gitignore_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip comments and empty lines
+                    if line and not line.startswith('#'):
+                        patterns.append(line)
+
+            print(f"📋 Loaded {len(patterns)} patterns from .gitignore")
+        except Exception as e:
+            print(f"⚠️  Error reading .gitignore: {e}")
+
+        return patterns
+
     def should_exclude(self, path: Path) -> bool:
         """Check if a file should be excluded from the manifest."""
-        import fnmatch
-        
-        path_str = str(path)
-        for pattern in self.exclude_patterns:
-            if fnmatch.fnmatch(path_str, pattern) or fnmatch.fnmatch(path.name, pattern):
+        # Get path relative to project root for gitignore matching
+        try:
+            rel_path = path.relative_to(self.project_root)
+            rel_path_str = str(rel_path)
+        except ValueError:
+            # Path is outside project root
+            return True
+
+        # Check gitignore patterns
+        for pattern in self.gitignore_patterns:
+            # Handle directory patterns (ending with /)
+            if pattern.endswith('/'):
+                dir_pattern = pattern.rstrip('/')
+                # Match if path starts with this directory
+                if rel_path_str.startswith(dir_pattern + '/') or rel_path_str == dir_pattern:
+                    return True
+                # Also match any part of the path
+                for part in rel_path.parts:
+                    if fnmatch.fnmatch(part, dir_pattern):
+                        return True
+            # Handle file/glob patterns
+            else:
+                # Check full path match
+                if fnmatch.fnmatch(rel_path_str, pattern):
+                    return True
+                # Check filename match
+                if fnmatch.fnmatch(path.name, pattern):
+                    return True
+                # Check if any path component matches (for patterns like .doc_index)
+                for part in rel_path.parts:
+                    if fnmatch.fnmatch(part, pattern):
+                        return True
+
+        # Check additional excludes
+        for pattern in self.additional_excludes:
+            if fnmatch.fnmatch(path.name, pattern) or fnmatch.fnmatch(rel_path_str, pattern):
                 return True
+
         return False
     
     def scan_directory(self, directory: Path, relative_to: Path) -> List[str]:
@@ -82,16 +139,16 @@ class ManifestGenerator:
         
         return files
     
-    def generate_manifest(self) -> Dict[str, Any]:
+    def generate_manifest(self, version: str = None) -> Dict[str, Any]:
         """Generate complete framework manifest."""
         print("🔍 Scanning framework files...")
-        
+
         all_files = []
-        
+
         # Process each framework pattern
         for pattern in self.framework_patterns:
             pattern_path = self.project_root / pattern
-            
+
             if pattern_path.exists():
                 if pattern_path.is_file():
                     if not self.should_exclude(pattern_path):
@@ -104,10 +161,14 @@ class ManifestGenerator:
                     print(f"   Added directory: {pattern} ({len(dir_files)} files)")
             else:
                 print(f"   Skipping missing: {pattern}")
-        
-        # Read current version
-        version_info = self.get_version_info()
-        
+
+        # Get version (either from arg or prompt)
+        if version:
+            version_info = {"version": version}
+            print(f"🏷️  Using version: {version}")
+        else:
+            version_info = self.get_version_info()
+
         # Create manifest
         manifest = {
             "version": version_info.get("version", "1.0.0"),
@@ -116,7 +177,7 @@ class ManifestGenerator:
             "file_count": len(all_files),
             "generator": "tools/generate_manifest.py"
         }
-        
+
         print(f"✅ Generated manifest with {manifest['file_count']} framework files")
         return manifest
     
@@ -227,7 +288,9 @@ def main():
                        help="Validate manifest after generation")
     parser.add_argument("--project-root", type=str, default=".",
                        help="Path to project root (default: current directory)")
-    
+    parser.add_argument("--version", type=str, default=None,
+                       help="Specify version directly (skip prompt)")
+
     args = parser.parse_args()
     
     try:
@@ -235,9 +298,9 @@ def main():
         
         print("🚀 Generating Framework Manifest")
         print("=" * 50)
-        
+
         # Generate manifest
-        manifest = generator.generate_manifest()
+        manifest = generator.generate_manifest(version=args.version)
         
         # Validate if requested
         if args.validate:
