@@ -12,13 +12,12 @@ Key Responsibilities:
 - Execute service registration based on decorator configuration
 - Handle database setup and model registration
 - Manage dependency resolution
-- Enforce data integrity requirements
 - Process API endpoint registration
 - Apply health checks and monitoring
 
 Architecture:
 1. ModuleProcessor scans module classes for decorator metadata
-2. Validates metadata against data integrity requirements  
+2. Validates metadata against framework requirements
 3. Executes registration in correct dependency order
 4. Handles errors with proper fallback and logging
 5. Provides comprehensive status reporting
@@ -125,99 +124,92 @@ class ModuleProcessor:
         self.logger.info(f"{module_id}: Processing with centralized logic")
         
         try:
-            # Step 1: Validate decorator metadata
-            self.logger.debug(f"{module_id}: Step 1/14 - Validating decorator metadata")
+            # Validate decorator metadata
+            self.logger.debug(f"{module_id}: Validating decorator metadata")
             validation_result = await self._validate_module_metadata(module_class, module_id)
             if not validation_result.success:
                 return validation_result
-            self.logger.debug(f"{module_id}: Step 1/14 - Metadata validation complete")
-            
-            # Step 2: Check data integrity requirements
-            self.logger.debug(f"{module_id}: Step 2/14 - Enforcing data integrity requirements")
-            integrity_result = await self._enforce_data_integrity(module_class, module_id)
-            if not integrity_result.success:
-                return integrity_result
-            self.logger.debug(f"{module_id}: Step 2/14 - Data integrity enforcement complete")
-            
-            # Step 3: Process dependencies
-            self.logger.debug(f"{module_id}: Step 3/14 - Processing module dependencies")
+            self.logger.debug(f"{module_id}: Metadata validation complete")
+
+            # Process dependencies
+            self.logger.debug(f"{module_id}: Processing module dependencies")
             dependency_result = await self._process_dependencies(module_class, module_id)
             if not dependency_result.success:
                 return dependency_result
-            self.logger.debug(f"{module_id}: Step 3/14 - Dependencies processed")
-            
-            # Step 4: Store service metadata (registration deferred until module instance available)
-            self.logger.debug(f"{module_id}: Step 4/14 - Storing service metadata for later registration")
+            self.logger.debug(f"{module_id}: Dependencies processed")
+
+            # Store service metadata (registration deferred until module instance available)
+            self.logger.debug(f"{module_id}: Storing service metadata for later registration")
             service_result = await self._store_service_metadata(module_class, module_id)
             if not service_result.success:
                 return service_result
-            self.logger.debug(f"{module_id}: Step 4/14 - Service metadata stored")
-            
-            # Step 5: Process Settings V2 definitions
-            self.logger.debug(f"{module_id}: Step 5/14 - Processing Settings V2 definitions")
+            self.logger.debug(f"{module_id}: Service metadata stored")
+
+            # Process Settings V2 definitions
+            self.logger.debug(f"{module_id}: Processing Settings V2 definitions")
             settings_result = await self._process_settings_v2(module_class, module_id)
             if not settings_result.success:
                 return settings_result
-            self.logger.debug(f"{module_id}: Step 5/14 - Settings V2 processing complete")
-            
-            # Step 6: Register databases and models
-            self.logger.debug(f"{module_id}: Step 6/14 - Registering databases and models")
+            self.logger.debug(f"{module_id}: Settings V2 processing complete")
+
+            # Register databases and models
+            self.logger.debug(f"{module_id}: Registering databases and models")
             database_result = await self._register_databases(module_class, module_id)
             if not database_result.success:
                 return database_result
-            self.logger.debug(f"{module_id}: Step 6/14 - Database registration complete")
-            
-            # Step 7: Register API endpoints
-            self.logger.debug(f"{module_id}: Step 7/14 - Registering API endpoints")
+            self.logger.debug(f"{module_id}: Database registration complete")
+
+            # Register API endpoints
+            self.logger.debug(f"{module_id}: Registering API endpoints")
             api_result = await self._register_api_endpoints(module_class, module_id)
             if not api_result.success:
                 return api_result
-            self.logger.debug(f"{module_id}: Step 7/14 - API endpoint registration complete")
-            
-            # Step 8: Setup health checks
-            self.logger.debug(f"{module_id}: Step 8/14 - Setting up health checks")
+            self.logger.debug(f"{module_id}: API endpoint registration complete")
+
+            # Setup health checks
+            self.logger.debug(f"{module_id}: Setting up health checks")
             health_result = await self._setup_health_checks(module_class, module_id)
             if not health_result.success:
                 return health_result
-            self.logger.debug(f"{module_id}: Step 8/14 - Health check setup complete")
-            
-            # Step 9: Process shutdown metadata
-            self.logger.debug(f"{module_id}: Step 9/14 - Processing shutdown metadata")
+            self.logger.debug(f"{module_id}: Health check setup complete")
+
+            # Process shutdown metadata
+            self.logger.debug(f"{module_id}: Processing shutdown metadata")
             shutdown_result = await self._process_shutdown_metadata(module_class, module_id)
             if not shutdown_result.success:
                 return shutdown_result
-            self.logger.debug(f"{module_id}: Step 9/14 - Shutdown metadata processed")
-            
-            # Step 10: Process dependency injection metadata
-            self.logger.debug(f"{module_id}: Step 10/14 - Processing dependency injection metadata")
+            self.logger.debug(f"{module_id}: Shutdown metadata processed")
+
+            # Process dependency injection metadata
+            self.logger.debug(f"{module_id}: Processing dependency injection metadata")
             injection_result = await self._process_dependency_injection(module_class, module_id)
             if not injection_result.success:
                 return injection_result
-            self.logger.debug(f"{module_id}: Step 10/14 - Dependency injection metadata processed")
-            
-            # Step 11: Process initialization sequences
-            self.logger.debug(f"{module_id}: Step 11/14 - Processing initialization sequences")
+            self.logger.debug(f"{module_id}: Dependency injection metadata processed")
+
+            # Process initialization sequences
+            self.logger.debug(f"{module_id}: Processing initialization sequences")
             init_result = await self._process_initialization_sequences(module_class, module_id)
             if not init_result.success:
                 return init_result
-            self.logger.debug(f"{module_id}: Step 11/14 - Initialization sequences processed")
-                
-            # Step 12: Process Phase 2 operations
-            self.logger.debug(f"{module_id}: Step 12/14 - Processing Phase 2 operations")
+            self.logger.debug(f"{module_id}: Initialization sequences processed")
+
+            # Process Phase 2 operations
+            self.logger.debug(f"{module_id}: Processing Phase 2 operations")
             phase2_result = await self._process_phase2_operations(module_class, module_id)
             if not phase2_result.success:
                 return phase2_result
-            self.logger.debug(f"{module_id}: Step 12/14 - Phase 2 operations processed")
-            
-            # Step 13: Process automatic service creation
-            self.logger.debug(f"{module_id}: Step 13/14 - Processing automatic service creation")
+            self.logger.debug(f"{module_id}: Phase 2 operations processed")
+
+            # Process automatic service creation
+            self.logger.debug(f"{module_id}: Processing automatic service creation")
             auto_service_result = await self._process_auto_service_creation(module_class, module_id)
             if not auto_service_result.success:
                 return auto_service_result
-            self.logger.debug(f"{module_id}: Step 13/14 - Automatic service creation processed")
-            
-            # Step 14: Record successful processing (preserve existing data)
-            self.logger.debug(f"{module_id}: Step 14/14 - Recording successful processing")
+            self.logger.debug(f"{module_id}: Automatic service creation processed")
+
+            # Record successful processing (preserve existing data)
+            self.logger.debug(f"{module_id}: Recording successful processing")
             
             # Initialize module data if needed, then update (never overwrite)
             module_data = self.processed_modules.setdefault(module_id, {})
@@ -240,9 +232,9 @@ class ModuleProcessor:
             })
             
             self.processing_stats['modules_processed'] += 1
-            
-            self.logger.debug(f"{module_id}: Step 14/14 - Processing record complete")
-            self.logger.info(f"{module_id}: Successfully processed with centralized system (14/14 steps completed)")
+
+            self.logger.debug(f"{module_id}: Processing record complete")
+            self.logger.info(f"{module_id}: Successfully processed with centralized system")
             return Result.success(data={'module_id': module_id, 'processing_complete': True})
             
         except Exception as e:
@@ -319,7 +311,7 @@ class ModuleProcessor:
 
     def _check_decorator_completeness(self, module_class: Type, module_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Check if module has all 12 mandatory decorators.
+        Check if module has all mandatory decorators.
 
         WARNING MODE: Reports missing decorators but does not fail module loading.
         This allows gradual migration to mandatory-all-decorators architecture.
@@ -335,7 +327,6 @@ class ModuleProcessor:
             'auto_service_creation': lambda m: m.get('service_creation') is not None and 'auto' in m['service_creation'],
             'register_api_endpoints': lambda m: len(m.get('api_endpoints', [])) > 0,
             'register_database': lambda m: len(m.get('databases', [])) > 0,
-            'enforce_data_integrity': lambda m: m.get('data_integrity', {}).get('enforced') is not None,
             'module_health_check': lambda m: len(m.get('health_checks', [])) > 0,
             'graceful_shutdown': lambda m: 'shutdown' in m and 'graceful' in m['shutdown'],
             'force_shutdown': lambda m: 'shutdown' in m and 'force' in m['shutdown']
@@ -355,48 +346,6 @@ class ModuleProcessor:
             'total_present': len(required_decorators) - len(missing_decorators)
         }
 
-    async def _enforce_data_integrity(self, module_class: Type, module_id: str) -> Result:
-        """Enforce data integrity requirements on the module."""
-        try:
-            metadata = get_module_metadata(module_class)
-            integrity_config = metadata.get('data_integrity', {})
-            
-            # Check if data integrity is properly enforced
-            if not integrity_config.get('enforced', True):
-                return Result.error(
-                    code="DATA_INTEGRITY_NOT_ENFORCED",
-                    message=f"Module {module_id} does not enforce data integrity",
-                    details={'module_id': module_id, 'integrity_config': integrity_config}
-                )
-            
-            # Check anti-mock protection
-            if not integrity_config.get('anti_mock_protection', True):
-                self.logger.warning(error_message(
-                    module_id="core.module_processor",
-                    error_type="ANTI_MOCK_PROTECTION_DISABLED",
-                    details=f"Module {module_id} has anti-mock protection disabled",
-                    location="_validate_data_integrity_requirements()"
-                ))
-            
-            # Validate module class inherits from integrity base classes
-            if not issubclass(module_class, DataIntegrityModule):
-                self.logger.warning(error_message(
-                    module_id="core.module_processor",
-                    error_type="MODULE_MISSING_INTEGRITY_BASE",
-                    details=f"Module {module_id} does not inherit from DataIntegrityModule. Consider migrating to base classes for automatic integrity validation.",
-                    location="_validate_data_integrity_requirements()"
-                ))
-            
-            self.logger.debug(f"Module {module_id} data integrity requirements validated")
-            return Result.success(data={'integrity_enforced': True})
-            
-        except Exception as e:
-            return Result.error(
-                code="INTEGRITY_ENFORCEMENT_FAILED",
-                message=f"Failed to enforce data integrity for {module_id}",
-                details={'error': str(e), 'module_id': module_id}
-            )
-    
     async def _process_dependencies(self, module_class: Type, module_id: str) -> Result:
         """Process module dependencies."""
         try:

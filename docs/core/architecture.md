@@ -73,10 +73,10 @@ modules/standard/my_module/
 ```
 
 ### Module Registration
-Modules use **ALL 12 MANDATORY DECORATORS** for clean, consistent registration:
+Modules use **all mandatory MANDATORY DECORATORS** for clean, consistent registration:
 
 ```python
-# api.py - ALL modules must have ALL 12 decorators
+# api.py - ALL modules must have ALL all mandatory decorators
 @inject_dependencies('app_context')
 @register_service("standard.my_module.service", methods=[...], priority=100)
 @require_services([])  # Empty list if no external services
@@ -150,15 +150,14 @@ async def initialize_phase2(self):
 
 ## Service Discovery and Processing
 
-The framework automatically discovers and processes modules through a **14-step centralized pipeline**:
+The framework automatically discovers and processes modules through a **centralized processing pipeline**:
 
 1. **Scan modules** - Find all modules in `modules/core/`, `modules/standard/`, `modules/extensions/`
-2. **Load decorators** - Process ALL 12 mandatory decorators from each module
-3. **Validate compliance** - Check that all 12 decorators are present
+2. **Load decorators** - Process ALL all mandatory decorators from each module
+3. **Validate compliance** - Check that all all mandatory decorators are present
 4. **Build dependency graph** - Determine initialization order from `@require_services`
-5. **Process decorators** - Execute 14-step centralized processing:
+5. **Process decorators** - Execute centralized processing:
    - Validate decorator metadata
-   - Enforce data integrity
    - Process dependencies
    - Store service metadata
    - Register databases/models

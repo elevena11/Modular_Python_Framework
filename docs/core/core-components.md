@@ -37,8 +37,8 @@ The `core/` directory contains the essential infrastructure that powers the Modu
 ### Module System
 
 **`decorators.py`** - Decorator Registration System (MANDATORY-ALL-DECORATORS)
-- **Purpose**: Centralized module registration using 12 mandatory decorators
-- **Architecture**: ALL modules MUST have ALL 12 decorators in specified order
+- **Purpose**: Centralized module registration using all mandatory decorators
+- **Architecture**: ALL modules MUST have ALL all mandatory decorators in specified order
 - **The 12 Mandatory Decorators**:
   1. `@inject_dependencies('app_context')` - Dependency injection
   2. `@register_service(...)` - Service registration with methods
@@ -73,25 +73,24 @@ The `core/` directory contains the essential infrastructure that powers the Modu
   - Manages module dependencies and initialization order
   - Coordinates two-phase initialization (registration → complex setup)
 
-**`module_processor.py`** - Module Processing Engine (14-STEP PIPELINE)
-- **Purpose**: Processes modules through 14-step centralized pipeline
-- **The 14 Processing Steps**:
-  1. Validate decorator metadata
-  2. Enforce data integrity
-  3. Process dependencies
-  4. Store service metadata
-  5. Process Settings V2
-  6. Register databases/models
-  7. Register API endpoints
-  8. Setup health checks
-  9. Process shutdown metadata
-  10. Process dependency injection
-  11. Process initialization sequences
-  12. Process Phase 2 operations
-  13. Process auto service creation
-  14. Record success
+**`module_processor.py`** - Module Processing Engine
+- **Purpose**: Processes modules through centralized processing pipeline
+- **Processing Steps**:
+  - Validate decorator metadata
+  - Process dependencies
+  - Store service metadata
+  - Process Settings V2
+  - Register databases/models
+  - Register API endpoints
+  - Setup health checks
+  - Process shutdown metadata
+  - Process dependency injection
+  - Process initialization sequences
+  - Process Phase 2 operations
+  - Process auto service creation
+  - Record success
 - **Key Features**:
-  - Uniform processing for all modules (14/14 steps)
+  - Uniform processing for all modules (all processing steps)
   - MODULE COMPLIANCE warnings for missing decorators
   - Phase 1: `setup_infrastructure()` for settings registration
   - Phase 2: `initialize_phase2()` for complex initialization
@@ -170,7 +169,7 @@ The `core/` directory contains the essential infrastructure that powers the Modu
 ### Service Discovery System (MANDATORY-ALL-DECORATORS)
 
 ```python
-# ALL modules must have ALL 12 decorators
+# ALL modules must have ALL all mandatory decorators
 @inject_dependencies('app_context')
 @register_service("standard.my_module.service", methods=[...], priority=100)
 @require_services([])  # Empty list if no external services
@@ -214,31 +213,31 @@ async def some_operation() -> Result:
         return Result.error("OPERATION_FAILED", str(e))
 ```
 
-## Module Integration Flow (14-STEP PIPELINE)
+## Module Integration Flow
 
 1. **Discovery**: `module_manager.py` scans for modules in `modules/` directories
-2. **Load Decorators**: `decorators.py` processes ALL 12 mandatory decorators
-3. **Validate Compliance**: Check all 12 decorators are present (MODULE COMPLIANCE warnings)
-4. **14-Step Processing**: `module_processor.py` executes centralized pipeline
+2. **Load Decorators**: `decorators.py` processes ALL all mandatory decorators
+3. **Validate Compliance**: Check all all mandatory decorators are present (MODULE COMPLIANCE warnings)
+4. **Centralized Processing**: `module_processor.py` executes processing pipeline
 5. **Phase 1 Execution**: Call `setup_infrastructure()` for settings registration
 6. **Service Creation**: `@auto_service_creation` creates service instances
 7. **Phase 2 Execution**: Call `initialize_phase2()` for complex initialization
 8. **Runtime**: Services available via `app_context.get_service()`
 
-**Success Indicator**: Module shows "14/14 steps completed" in logs
+**Success Indicator**: Module shows "processing completed" in logs
 
 ## Development Guidelines
 
 ### For Framework Development
 - **Never modify core files casually** - They affect all modules
 - **Test changes thoroughly** - Core changes impact entire framework
-- **Maintain 14-step pipeline** - All modules must complete all 14 steps
+- **Maintain processing pipeline** - All modules must complete all processing steps
 - **Follow mandatory-all-decorators** - No exceptions or special cases
 - **Document architectural changes** - Core modifications need documentation
 
 ### For Application Development
 - **ALWAYS use scaffolding tool** - `python tools/scaffold_module.py`
-- **ALL 12 decorators required** - No skipping decorators (use None/empty for unused)
+- **ALL all mandatory decorators required** - No skipping decorators (use None/empty for unused)
 - **Use base classes** - `DataIntegrityModule` for all modules
 - **Follow two-phase pattern**:
   - Phase 1: `setup_infrastructure()` for settings registration ONLY
@@ -246,4 +245,4 @@ async def some_operation() -> Result:
 - **Use Result pattern** - For explicit error handling in business logic
 - **Implement cleanup methods** - Both `cleanup_resources()` and `force_cleanup()`
 
-The core system provides a solid, tested foundation with **mandatory-all-decorators architecture** that ensures consistent processing across all modules. The 14-step pipeline eliminates configuration drift and guarantees uniform behavior.
+The core system provides a solid, tested foundation with **mandatory-all-decorators architecture** that ensures consistent processing across all modules. The processing pipeline eliminates configuration drift and guarantees uniform behavior.

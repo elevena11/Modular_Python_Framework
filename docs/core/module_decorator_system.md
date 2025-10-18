@@ -2,10 +2,10 @@
 
 ## Overview
 
-The framework uses a **mandatory-all-decorators architecture** where ALL modules must include ALL 12 decorators. This enforces consistency, prevents configuration drift, and ensures the framework can process every module through the same 14-step pipeline.
+The framework uses a **mandatory-all-decorators architecture** where ALL modules must include ALL all mandatory decorators. This enforces consistency, prevents configuration drift, and ensures the framework can process every module through the same processing pipeline.
 
 **CRITICAL: MANDATORY-ALL-DECORATORS ARCHITECTURE**
-- Every module MUST have ALL 12 decorators
+- Every module MUST have ALL all mandatory decorators
 - Use `None` or empty values for unused features (e.g., `@register_database(database_name=None)`)
 - No exceptions - all modules follow the same pattern
 - The scaffolding tool enforces this by generating all decorators automatically
@@ -150,8 +150,8 @@ The `ModuleProcessor` executes these steps when processing each module:
 
 ## Complete Decorator Stack
 
-### Standard Module (ALL 12 DECORATORS - MANDATORY)
-Every module must include ALL 12 decorators in this exact order:
+### Standard Module (all mandatory DECORATORS - MANDATORY)
+Every module must include ALL all mandatory decorators in this exact order:
 ```python
 @inject_dependencies('app_context')
 @register_service("standard.my_module.service", methods=[
@@ -188,7 +188,7 @@ class MyModule(DataIntegrityModule):
     MODULE_DESCRIPTION = "Module description"
 ```
 
-### Module with Database (ALL 12 DECORATORS)
+### Module with Database (all mandatory DECORATORS)
 ```python
 @inject_dependencies('app_context')
 @register_service("standard.my_db_module.service", methods=[...], priority=100)
@@ -251,9 +251,9 @@ class MyModule(DataIntegrityModule):
         # ... complex initialization
 ```
 
-## Decorator Order (MANDATORY - ALL 12 DECORATORS)
+## Decorator Order (MANDATORY - all mandatory DECORATORS)
 
-Decorators are applied bottom-to-top, so order matters. ALL modules MUST have ALL 12 decorators in this exact order:
+Decorators are applied bottom-to-top, so order matters. ALL modules MUST have ALL all mandatory decorators in this exact order:
 
 1. `@inject_dependencies('app_context')` - MUST be first (closest to class)
 2. `@register_service(...)` - Service definitions with methods
@@ -292,13 +292,13 @@ WARNING - core.module_processor - MODULE COMPLIANCE: standard.my_module is missi
   - @module_health_check (None for default behavior)
 ```
 
-**Detection**: Missing decorators are detected during module processing (14-step pipeline)
+**Detection**: Missing decorators are detected during module processing (processing pipeline)
 **Impact**: Module may fail to initialize properly or lack expected functionality
-**Resolution**: Add ALL 12 decorators - use scaffolding tool to generate compliant modules
+**Resolution**: Add ALL all mandatory decorators - use scaffolding tool to generate compliant modules
 
 ### Benefits of Mandatory-All-Decorators
 
-1. **Uniform Processing**: All modules go through identical 14-step processing pipeline
+1. **Uniform Processing**: All modules go through identical processing pipeline
 2. **Complete Discovery**: Services can enumerate all module capabilities
 3. **Predictable Behavior**: No special cases or conditional logic
 4. **Easy Migration**: Adding features just requires changing decorator values, not adding decorators
@@ -308,7 +308,7 @@ WARNING - core.module_processor - MODULE COMPLIANCE: standard.my_module is missi
 
 ### Scaffolding Tool Compliance
 
-The scaffolding tool (`tools/scaffold_module.py`) automatically generates ALL 12 decorators:
+The scaffolding tool (`tools/scaffold_module.py`) automatically generates ALL all mandatory decorators:
 - Creates modules with 100% decorator compliance
 - Uses `None` or empty values for unused features
 - Ensures 14/14 processing steps complete
@@ -326,7 +326,7 @@ class MyModule(DataIntegrityModule):
     pass
 ```
 
-✅ **Correct - ALL 12 decorators present:**
+✅ **Correct - ALL all mandatory decorators present:**
 ```python
 @inject_dependencies('app_context')
 @register_service("my_module.service", methods=[...], priority=100)
@@ -363,7 +363,7 @@ class MyModule(DataIntegrityModule):
 python tools/scaffold_module.py --name my_module --type standard --features api,settings
 ```
 This automatically generates:
-- ALL 12 decorators with correct values
+- ALL all mandatory decorators with correct values
 - Proper decorator ordering
 - Complete implementation patterns
 - 100% framework compliance

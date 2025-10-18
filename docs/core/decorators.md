@@ -1,10 +1,10 @@
 # Decorator Patterns
 
-The framework uses a **mandatory-all-decorators architecture** where ALL modules must include ALL 12 decorators. This provides clean, declarative module registration with consistent processing across all modules.
+The framework uses a **mandatory-all-decorators architecture** where ALL modules must include ALL mandatory decorators. This provides clean, declarative module registration with consistent processing across all modules.
 
 ## CRITICAL: Mandatory-All-Decorators Architecture
 
-**Every module MUST have ALL 12 decorators in the specified order:**
+**Every module MUST have ALL 11 mandatory decorators in the specified order:**
 1. `@inject_dependencies('app_context')`
 2. `@register_service(...)`
 3. `@require_services([...])`
@@ -13,14 +13,13 @@ The framework uses a **mandatory-all-decorators architecture** where ALL modules
 6. `@auto_service_creation(service_class="...")`
 7. `@register_api_endpoints(router_name="router")`
 8. `@register_database(database_name=...)`
-9. `@enforce_data_integrity(strict_mode=True, anti_mock=True)`
-10. `@module_health_check(check_function=None)`
-11. `@graceful_shutdown(method="cleanup_resources", timeout=30)`
-12. `@force_shutdown(method="force_cleanup", timeout=5)`
+9. `@module_health_check(check_function=None)`
+10. `@graceful_shutdown(method="cleanup_resources", timeout=30)`
+11. `@force_shutdown(method="force_cleanup", timeout=5)`
 
 **Use `None` or empty values for unused features** - e.g., `@register_database(database_name=None)` if the module doesn't use a database.
 
-## The 12 Mandatory Decorators
+## The 11 Mandatory Decorators
 
 ### 1. @inject_dependencies
 **Required:** MANDATORY - All modules need app_context
@@ -156,20 +155,7 @@ Registers database requirements.
 **Parameters:**
 - `database_name` (str): Database name or None
 
-### 9. @enforce_data_integrity
-**Required:** MANDATORY - All modules must declare integrity mode
-
-Enforces data integrity requirements.
-
-```python
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
-```
-
-**Parameters:**
-- `strict_mode` (bool): Strict integrity checks (always True)
-- `anti_mock` (bool): Prevent mocking (always True)
-
-### 10. @module_health_check
+### 9. @module_health_check
 **Required:** MANDATORY - Use `check_function=None` or custom function
 
 Registers periodic health check.
@@ -184,7 +170,7 @@ Registers periodic health check.
 - `check_function` (Callable): Custom health check or None
 - `interval` (int): Check interval in seconds (default: 300)
 
-### 11. @graceful_shutdown
+### 10. @graceful_shutdown
 **Required:** MANDATORY - All modules must define cleanup
 
 Registers async cleanup method.
@@ -201,7 +187,7 @@ class MyModule(DataIntegrityModule):
 - `method` (str): Cleanup method name (use `"cleanup_resources"`)
 - `timeout` (int): Timeout in seconds (default: 30)
 
-### 12. @force_shutdown
+### 11. @force_shutdown
 **Required:** MANDATORY - All modules must define emergency cleanup
 
 Registers sync force cleanup.
@@ -235,7 +221,7 @@ class MyModule(DataIntegrityModule):
 - `core.module_name` - Framework modules
 - `extensions.module_name` - Extension modules
 
-## Complete Module Example (ALL 12 DECORATORS)
+## Complete Module Example (ALL 11 DECORATORS)
 
 ```python
 # modules/standard/my_module/api.py
@@ -253,7 +239,6 @@ from core.decorators import (
     initialization_sequence,
     register_api_endpoints,
     register_database,
-    enforce_data_integrity,
     module_health_check,
     graceful_shutdown,
     force_shutdown
@@ -263,7 +248,7 @@ from core.logging import get_framework_logger
 
 logger = get_framework_logger("standard.my_module")
 
-# MANDATORY: ALL 12 DECORATORS IN CORRECT ORDER
+# MANDATORY: ALL 11 DECORATORS IN CORRECT ORDER
 @inject_dependencies('app_context')
 @register_service("standard.my_module.service", methods=[
     ServiceMethod(
@@ -289,7 +274,6 @@ logger = get_framework_logger("standard.my_module")
 @auto_service_creation(service_class="MyModuleService")
 @register_api_endpoints(router_name="router")
 @register_database(database_name=None)  # None if no database
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(check_function=None)
 @graceful_shutdown(method="cleanup_resources", timeout=30)
 @force_shutdown(method="force_cleanup", timeout=5)
@@ -477,7 +461,7 @@ python tools/scaffold_module.py --name my_module --type standard --features api,
 ```
 
 This automatically generates:
-- ALL 12 decorators in correct order
+- ALL mandatory decorators in correct order
 - Proper decorator values and parameters
 - Complete implementation patterns
 - settings.py, services.py, api.py files
@@ -498,15 +482,15 @@ WARNING - core.module_processor - MODULE COMPLIANCE: standard.my_module is missi
   - @module_health_check (None for default behavior)
 ```
 
-**Detection:** Missing decorators are detected during the 14-step processing pipeline
+**Detection:** Missing decorators are detected during module processing
 **Impact:** Module may fail to initialize or lack expected functionality
-**Resolution:** Add ALL 12 decorators using the scaffolding tool
+**Resolution:** Add ALL mandatory decorators using the scaffolding tool
 
 ### Best Practices
 
 1. **Always Use Scaffolding Tool** - Generate 100% compliant modules automatically
-2. **Never Skip Decorators** - All 12 are mandatory, use None/empty values for unused features
-3. **Follow Exact Order** - Decorators must be in the specified order (1-12)
+2. **Never Skip Decorators** - All mandatory decorators are required, use None/empty values for unused features
+3. **Follow Exact Order** - Decorators must be in the specified order
 4. **Phase 1 Required** - ALL modules must register Pydantic settings
 5. **Cleanup Methods Required** - Implement both async and sync cleanup
 

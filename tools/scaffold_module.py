@@ -348,7 +348,6 @@ async def get_info():
             "    phase2_operations,",
             "    register_api_endpoints,",
             "    register_database,",
-            "    enforce_data_integrity,",
             "    module_health_check,",
             "    graceful_shutdown,",
             "    force_shutdown,"
@@ -384,7 +383,6 @@ async def get_info():
             decorators.append('@register_database(database_name=None)')
 
         decorators.extend([
-            '@enforce_data_integrity(strict_mode=True, anti_mock=True)',
             '@module_health_check(check_function=None)',
             '@graceful_shutdown(method="cleanup_resources", timeout=30)',
             '@force_shutdown(method="force_cleanup", timeout=5)'
@@ -1323,7 +1321,6 @@ def test_decorator_metadata():
     
     # Test decorator presence
     assert "@register_service(" in api_content, "Missing @register_service decorator"
-    assert "@enforce_data_integrity(" in api_content, "Missing @enforce_data_integrity decorator"
 
 def test_decorator_based_initialization():
     """Test that v3.0.0 decorator-based initialization is implemented"""

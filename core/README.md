@@ -34,7 +34,6 @@ This directory contains the **core framework components** that power the Modular
   - `@phase2_operations` - Phase 2 method registration
   - `@auto_service_creation` - Automatic service instance creation
   - `@register_api_endpoints` - Automatic API route setup
-  - `@enforce_data_integrity` - Data validation and anti-mock protection
   - `@module_health_check` - Automatic health monitoring
   - `@graceful_shutdown` - Async cleanup registration
   - `@force_shutdown` - Sync force cleanup registration
@@ -162,7 +161,6 @@ from core.decorators import (
     phase2_operations,
     auto_service_creation,
     register_api_endpoints,
-    enforce_data_integrity,
     graceful_shutdown,
     force_shutdown
 )
@@ -183,7 +181,6 @@ from core.module_base import DataIntegrityModule
 @phase2_operations("initialize_phase2")
 @auto_service_creation(service_class="MyModuleService")
 @register_api_endpoints(router_name="router")
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
 @graceful_shutdown(method="cleanup_resources", timeout=30)
 @force_shutdown(method="force_cleanup", timeout=5)
 class MyModule(DataIntegrityModule):

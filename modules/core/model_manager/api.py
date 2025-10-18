@@ -19,7 +19,6 @@ from core.decorators import (
     ServiceParam,
     ServiceReturn,
     ServiceExample,
-    enforce_data_integrity,
     require_services,
     module_health_check,
     graceful_shutdown,
@@ -134,7 +133,6 @@ from .settings import ModelManagerSettings
 @require_services(["core.settings.service"])
 @initialization_sequence("setup_infrastructure", "create_service", "register_settings", phase="phase1")
 @phase2_operations("initialize_phase2", dependencies=["core.settings.phase2_auto"], priority=40)
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @register_api_endpoints(router_name="router")
 @register_database(database_name=None)

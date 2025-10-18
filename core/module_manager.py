@@ -510,7 +510,6 @@ from core.decorators import (
     register_models,
     requires_modules,
     register_api_endpoints,
-    enforce_data_integrity,
     module_health_check,
     inject_dependencies,
     initialization_sequence,

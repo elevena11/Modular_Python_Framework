@@ -59,11 +59,11 @@ modules/standard/my_module/
 ```
 
 #### Key Features
-- **100% Framework Compliance** - ALL 12 mandatory decorators included
+- **100% Framework Compliance** - ALL all mandatory decorators included
 - **Mandatory-All-Decorators** - No missing decorators, guaranteed 14/14 processing steps
 - **Error handling** - Result pattern implemented in all generated code
 - **Two-phase initialization** - Proper `setup_infrastructure()` and `initialize_phase2()`
-- **Complete decorator stack** - All 12 decorators in correct order:
+- **Complete decorator stack** - All all mandatory decorators in correct order:
   1. `@inject_dependencies('app_context')`
   2. `@register_service(...)`
   3. `@require_services([...])`
@@ -335,7 +335,7 @@ python tools/error_analysis/compliance_insights.py
 ### Common Compliance Issues
 
 **"MODULE COMPLIANCE: Missing decorators"**
-- Solution: Use scaffolding tool to generate modules with all 12 decorators
+- Solution: Use scaffolding tool to generate modules with all all mandatory decorators
 - Never manually create modules - always use `python tools/scaffold_module.py`
 
 **"Service Registration Pattern: No"**

@@ -30,7 +30,7 @@ modules/standard/my_module/
 
 ### 1. api.py - Module Entry Point
 
-This is the main file that defines your module with **ALL 12 MANDATORY DECORATORS**:
+This is the main file that defines your module with **all mandatory MANDATORY DECORATORS**:
 
 ```python
 from core.decorators import (
@@ -56,7 +56,7 @@ from core.logging import get_framework_logger
 
 logger = get_framework_logger("standard.my_module")
 
-# MANDATORY: ALL 12 DECORATORS IN CORRECT ORDER
+# MANDATORY: all mandatory DECORATORS IN CORRECT ORDER
 @inject_dependencies('app_context')
 @register_service("standard.my_module.service", methods=[
     ServiceMethod(
@@ -125,7 +125,7 @@ class MyModuleModule(DataIntegrityModule):
             self.service_instance.force_cleanup()
 ```
 
-**CRITICAL: ALL 12 DECORATORS ARE MANDATORY**
+**CRITICAL: all mandatory DECORATORS ARE MANDATORY**
 1. `@inject_dependencies('app_context')` - Injects app_context into constructor
 2. `@register_service(...)` - Registers service with full method documentation
 3. `@require_services([...])` - Declares service dependencies (empty list if none)
@@ -140,7 +140,7 @@ class MyModuleModule(DataIntegrityModule):
 12. `@force_shutdown(method="force_cleanup", timeout=5)` - Sync force cleanup
 
 **Framework Standards:**
-- **Mandatory-All-Decorators**: Every module must have all 12 decorators
+- **Mandatory-All-Decorators**: Every module must have all all mandatory decorators
 - **Phase 1 Required**: Must implement `setup_infrastructure()` for settings registration
 - **Service Methods**: Define comprehensive service interface with ServiceMethod
 - **Cleanup Methods**: Must implement both `cleanup_resources()` and `force_cleanup()`

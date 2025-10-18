@@ -430,68 +430,6 @@ def register_api_endpoints(router_name: str = "router"):
     return decorator
 
 # ============================================================================
-# DATA INTEGRITY ENFORCEMENT DECORATORS
-# ============================================================================
-
-def enforce_data_integrity(strict_mode: bool = True, anti_mock: bool = True):
-    """
-    Enforce strict data integrity requirements on the module.
-
-    Required: Yes (all modules must include this decorator)
-
-    Args:
-        strict_mode: Enable strict data integrity validation
-        anti_mock: Enable anti-mock data protection
-
-    Example:
-        @enforce_data_integrity(strict_mode=True, anti_mock=True)
-        class MyModule(DataIntegrityModule):
-            pass
-    """
-    def decorator(cls):
-        metadata = _ensure_module_metadata(cls)
-        _add_decorator_source(cls, f"enforce_data_integrity(strict={strict_mode})")
-        
-        metadata['data_integrity'].update({
-            'strict_mode': strict_mode,
-            'anti_mock_protection': anti_mock,
-            'enforced_by_decorator': True,
-            'enforcement_time': datetime.now().isoformat()
-        })
-        
-        logger.debug(f"Decorator enforced data integrity for {cls.__name__}")
-        return cls
-    
-    return decorator
-
-def no_mock_data(enforcement_level: str = "error"):
-    """
-    Explicitly forbid mock data in the module.
-    
-    Args:
-        enforcement_level: "error", "warning", or "log"
-        
-    Example:
-        @no_mock_data(enforcement_level="error")
-        class MyModule(DataIntegrityModule):
-            pass
-    """
-    def decorator(cls):
-        metadata = _ensure_module_metadata(cls)
-        _add_decorator_source(cls, f"no_mock_data({enforcement_level})")
-        
-        metadata['data_integrity']['no_mock_data'] = {
-            'enabled': True,
-            'enforcement_level': enforcement_level,
-            'enforced_by_decorator': True
-        }
-        
-        logger.debug(f"Decorator applied no_mock_data protection to {cls.__name__}")
-        return cls
-    
-    return decorator
-
-# ============================================================================
 # MODULE HEALTH AND VALIDATION DECORATORS
 # ============================================================================
 
@@ -584,6 +522,24 @@ def has_decorator_metadata(cls) -> bool:
     """Check if a module class has decorator metadata."""
     return hasattr(cls, '_decorator_metadata')
 
+def validate_decorator_integrity(cls) -> Dict[str, Any]:
+    """
+    Validate that decorator metadata meets basic integrity requirements.
+
+    Returns:
+        Dictionary with validation results
+    """
+    metadata = get_module_metadata(cls)
+    violations = []
+
+    # Basic validation - can be extended in the future
+    # Currently always returns valid
+
+    return {
+        'valid': len(violations) == 0,
+        'violations': violations
+    }
+
 def list_registered_services(cls) -> List[Dict[str, Any]]:
     """Get all services registered via decorators for a module."""
     metadata = get_module_metadata(cls)
@@ -593,28 +549,6 @@ def list_required_databases(cls) -> List[Dict[str, Any]]:
     """Get all databases registered via decorators for a module."""
     metadata = get_module_metadata(cls)
     return metadata.get('databases', [])
-
-def validate_decorator_integrity(cls) -> Dict[str, Any]:
-    """
-    Validate that decorator metadata meets basic integrity requirements.
-
-    Returns:
-        Dictionary with validation results and any violations found
-    """
-    metadata = get_module_metadata(cls)
-    violations = []
-
-    # Check data integrity enforcement
-    data_integrity = metadata.get('data_integrity', {})
-    if not data_integrity.get('enforced', True):
-        violations.append("Data integrity enforcement is disabled")
-
-    return {
-        'valid': len(violations) == 0,
-        'violations': violations,
-        'data_integrity_enforced': data_integrity.get('enforced', True),
-        'anti_mock_protection': data_integrity.get('anti_mock_protection', True)
-    }
 
 # ============================================================================
 # SHUTDOWN MANAGEMENT DECORATORS
@@ -1067,11 +1001,7 @@ __all__ = [
     'requires_modules',
     'require_services',
     'provides_api_endpoints',
-    
-    # Data integrity
-    'enforce_data_integrity',
-    'no_mock_data',
-    
+
     # Health and validation
     'module_health_check',
     
@@ -1089,9 +1019,9 @@ __all__ = [
     # Utilities
     'get_module_metadata',
     'has_decorator_metadata',
+    'validate_decorator_integrity',
     'list_registered_services',
     'list_required_databases',
-    'validate_decorator_integrity',
     'get_shutdown_metadata',
     'has_graceful_shutdown',
     'has_force_shutdown',

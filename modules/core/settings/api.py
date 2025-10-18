@@ -19,7 +19,6 @@ from core.decorators import (
     auto_service_creation,
     initialization_sequence,
     phase2_operations,
-    enforce_data_integrity,
     graceful_shutdown,
     force_shutdown,
     require_services,
@@ -141,7 +140,6 @@ logger = get_framework_logger(MODULE_ID)
 @auto_service_creation(service_class="SettingsService")
 @register_api_endpoints(router_name="router")
 @register_database(database_name=None)
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(check_function=None)
 # Note: Decorator timeouts will be configurable via environment variables CORE_SETTINGS_GRACEFUL_SHUTDOWN_TIMEOUT=30
 @graceful_shutdown(method="cleanup_resources", timeout=30)

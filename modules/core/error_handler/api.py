@@ -20,7 +20,6 @@ from core.decorators import (
     ServiceParam,
     ServiceReturn,
     ServiceExample,
-    enforce_data_integrity,
     require_services,
     module_health_check,
     graceful_shutdown,
@@ -182,7 +181,6 @@ from .settings import ErrorHandlerSettings
 @phase2_operations("initialize_phase2", dependencies=["core.settings.service"], priority=20)
 @register_api_endpoints(router_name="router")
 @register_database(database_name=None)
-@enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @graceful_shutdown(method="cleanup_resources", timeout=30, priority=20)
 @force_shutdown(method="force_cleanup", timeout=5)

@@ -409,7 +409,6 @@ class ModuleScanner:
             
             # Check for decorator patterns that indicate v3.0.0
             has_register_service = "@register_service" in content
-            has_data_integrity = "@enforce_data_integrity" in content or "DataIntegrityModule" in content
             
             # Must have at least MODULE_ID and some v3.0.0 indicators
             if not (module_id_match and (has_register_service or has_data_integrity)):
