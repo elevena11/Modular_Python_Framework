@@ -26,11 +26,11 @@ class ModuleScaffolderV2:
         self.project_root = Path(__file__).parent.parent
         
         # Available features that modules can include
+        # NOTE: 'settings' is MANDATORY - all modules must have settings.py
         self.available_features = {
             'database': 'Database operations with Result pattern and error handling',
-            'api': 'FastAPI REST endpoints with create_error_response pattern', 
-            'ui_streamlit': 'Streamlit UI with proper service communication',
-            'settings': 'Framework-compliant settings with validation'
+            'api': 'FastAPI REST endpoints with create_error_response pattern',
+            'ui_streamlit': 'Streamlit UI with proper service communication'
         }
         
         # Module types
@@ -42,9 +42,10 @@ class ModuleScaffolderV2:
     
     def interactive_prompt(self) -> Dict[str, Any]:
         """Interactive prompt to gather module requirements."""
-        print("Module Scaffolder V2")
+        print("Module Scaffolder V3")
         print("=" * 50)
-        print("Creates framework-compliant modules with mandatory error handling")
+        print("Creates framework-compliant modules")
+        print("NOTE: Settings are MANDATORY for all modules")
         
         config = {}
         
@@ -81,15 +82,14 @@ class ModuleScaffolderV2:
         config['features'] = features
         
         # Dependencies (auto-suggest based on features)
-        suggested_deps = []
+        # NOTE: core.settings is ALWAYS included as settings are mandatory
+        suggested_deps = ['core.settings']
         if 'database' in features:
             suggested_deps.append('core.database')
-        if 'settings' in features:
-            suggested_deps.append('core.settings')
-            
-        deps_default = ','.join(suggested_deps) if suggested_deps else ""
+
+        deps_default = ','.join(suggested_deps)
         deps_input = input(f"\\nDependencies [{deps_default}]: ").strip() or deps_default
-        config['dependencies'] = [d.strip() for d in deps_input.split(',') if d.strip()] if deps_input else []
+        config['dependencies'] = [d.strip() for d in deps_input.split(',') if d.strip()]
         
         # Summary
         print(f"\\nSummary:")
@@ -165,7 +165,8 @@ from typing import Dict, List, Any, Union, Optional
 from core.logging import get_framework_logger
 from core.error_utils import error_message
 from core.decorators import (
-{decorators['imports']}
+{decorators['imports']},
+    initialization_sequence
 )
 from core.module_base import DataIntegrityModule
 
@@ -198,9 +199,9 @@ class {class_name}Module(DataIntegrityModule):
         super().__init__()
         self.service_instance = None
         self.initialized = False
-        
+
         logger.info(f"{{self.MODULE_ID}} created with FULL decorator system")
-    
+    {self._get_setup_infrastructure_method(config, class_name)}
     async def initialize_phase2(self):
         """Phase 2: Initialize with guaranteed service access."""
         logger.info(f"{{self.MODULE_ID}}: Phase 2 - Initializing with dependencies")
@@ -364,7 +365,10 @@ async def get_info():
         
         if 'database' in config['features']:
             decorators.append('@require_services(["core.database.service", "core.database.crud_service"])')
-        
+
+        # Phase 1 initialization sequence - MANDATORY for settings registration
+        decorators.append('@initialization_sequence("setup_infrastructure", phase="phase1")')
+
         decorators.append('@phase2_operations("initialize_phase2")')
         decorators.append('@auto_service_creation(service_class="' + config['name'].replace('_', ' ').title().replace(' ', '') + 'Service")')
         
@@ -456,6 +460,24 @@ async def get_info():
         
         return methods
     
+    def _get_setup_infrastructure_method(self, config: Dict[str, Any], class_name: str) -> str:
+        """Generate setup_infrastructure method for Phase 1 settings registration.
+
+        NOTE: This is MANDATORY for all modules as settings are required.
+        """
+        settings_class = f"{class_name}Settings"
+
+        return f'''
+    def setup_infrastructure(self):
+        """Phase 1: Register Pydantic settings model (NO service access)."""
+        try:
+            from .settings import {settings_class}
+            self.app_context.register_pydantic_model(self.MODULE_ID, {settings_class})
+            logger.info(f"{{self.MODULE_ID}}: Pydantic settings model registered with framework")
+        except Exception as e:
+            logger.warning(f"{{self.MODULE_ID}}: Error registering Pydantic model: {{e}}")
+    '''
+
     def _get_service_access_code(self, config: Dict[str, Any]) -> str:
         """Generate service access code based on features."""
         if 'database' in config['features']:
@@ -476,9 +498,10 @@ async def get_info():
         logic_parts = []
         if 'database' in config['features']:
             logic_parts.append('                    # Setup database operations if needed')
-        if 'settings' in config['features']:
-            logic_parts.append('                    # Load module settings if needed')
-        
+
+        # Settings are MANDATORY - always include
+        logic_parts.append('                    # Load module settings if needed')
+
         if logic_parts:
             return '\n' + '\n'.join(logic_parts)
         return ''
@@ -1049,10 +1072,10 @@ def render_ui(app_context) -> Dict[str, Any]:
         print(f"Generated {streamlit_path}")
     
     def generate_module_settings(self, config: Dict[str, Any], module_path: Path):
-        """Generate settings.py with modern Pydantic pattern."""
-        if 'settings' not in config['features']:
-            return
-            
+        """Generate settings.py with modern Pydantic pattern.
+
+        NOTE: Settings are MANDATORY for all modules.
+        """
         module_id = f"{config['type']}.{config['name']}"
         class_name = config['name'].replace('_', ' ').title().replace(' ', '') + 'Settings'
         
@@ -1435,10 +1458,10 @@ def test_ui_registration():
         
         if 'ui_streamlit' in config['features']:
             self.generate_ui_files(config, module_path)
-        
-        if 'settings' in config['features']:
-            self.generate_module_settings(config, module_path)
-        
+
+        # Settings are MANDATORY for all modules
+        self.generate_module_settings(config, module_path)
+
         self.generate_tests(config)
         
         # NOTE: compliance.md is NOT generated - it should be created by compliance.py
@@ -1517,10 +1540,10 @@ def main():
         }
         
         # Auto-suggest dependencies
+        # NOTE: core.settings is MANDATORY for all modules
+        config['dependencies'].append('core.settings')
         if 'database' in config['features']:
             config['dependencies'].append('core.database')
-        if 'settings' in config['features']:
-            config['dependencies'].append('core.settings')
         
         scaffolder.run_non_interactive(config)
     else:

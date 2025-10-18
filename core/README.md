@@ -7,33 +7,63 @@ This directory contains the **core framework components** that power the Modular
 ### Application Context & Service Container
 - **`app_context.py`** - Central service container and application lifecycle management
   - Service registration and retrieval
+  - Pydantic settings model registration
   - Post-initialization hook system
   - Module setup coordination
   - Shutdown handler management
 
 ### Module System
-- **`module_loader.py`** - Module discovery and loading
+- **`module_manager.py`** - Module discovery and orchestration
   - Scans for modules with decorator patterns
   - Loads modules in dependency order
-  - Handles both decorator-based and legacy modules
-  - Two-phase initialization orchestration
+  - Handles decorator-based module registration
+  - Two-phase initialization orchestration (Phase 1 → Phase 2)
 
-- **`module_processor.py`** - Centralized module processing (centralized registration)
-  - Processes decorator metadata
+- **`module_processor.py`** - Centralized module processing (14-step registration)
+  - Processes decorator metadata from module classes
   - Registers services, databases, and API endpoints
-  - Sets up health checks and data integrity
+  - Sets up health checks and data integrity enforcement
+  - Executes Phase 1 initialization sequences
+  - Registers Phase 2 operations and post-init hooks
   - Centralizes all module registration logic
 
-- **`decorators.py`** - Module registration decorators
-  - `@register_service` - Service container registration
-  - `@provides_api_endpoints` - Automatic API route setup
+- **`decorators.py`** - Module registration decorators (complete decorator system)
+  - `@register_service` - Service container registration with method documentation
+  - `@inject_dependencies` - Automatic dependency injection
+  - `@initialization_sequence` - Phase 1 method registration (CRITICAL for settings)
+  - `@phase2_operations` - Phase 2 method registration
+  - `@auto_service_creation` - Automatic service instance creation
+  - `@register_api_endpoints` - Automatic API route setup
   - `@enforce_data_integrity` - Data validation and anti-mock protection
   - `@module_health_check` - Automatic health monitoring
+  - `@graceful_shutdown` - Async cleanup registration
+  - `@force_shutdown` - Sync force cleanup registration
+  - `@require_services` - Service dependency declaration
+  - `@register_database` - Database registration
 
 - **`module_base.py`** - Base classes for modules
   - `DataIntegrityModule` - Base with integrity validation
-  - `DatabaseEnabledModule` - Base for database-enabled modules
   - Common module functionality and patterns
+
+### Bootstrap & Configuration
+- **`bootstrap.py`** - Framework initialization bootstrap
+  - Environment setup
+  - Core module loading
+  - Application context initialization
+
+- **`config.py`** - Framework configuration management
+  - Core configuration constants
+  - Environment-based settings
+
+- **`version.py`** - Framework version management
+  - Version information
+  - Release metadata
+
+### Database Infrastructure
+- **`database.py`** - Core database utilities
+  - Database base class generation
+  - SQLite JSON type support
+  - Database utility functions
 
 ### Utilities
 - **`error_utils.py`** - Pure error handling utilities (v3.0.0)
@@ -57,10 +87,29 @@ This directory contains the **core framework components** that power the Modular
 
 ### Decorator-Based Registration
 The core implements the **centralized registration** pattern:
-1. **Module Discovery** (`module_loader.py`) - Find modules with decorators
-2. **Decorator Processing** (`module_processor.py`) - Extract metadata from decorators
+1. **Module Discovery** (`module_manager.py`) - Find modules with decorators
+2. **Decorator Processing** (`module_processor.py`) - Extract metadata from decorators (14-step flow)
 3. **Service Registration** (`app_context.py`) - Register services in container
-4. **Two-Phase Init** (`module_loader.py`) - Phase 1 registration, Phase 2 complex setup
+4. **Two-Phase Init** (`module_manager.py`) - Phase 1 registration, Phase 2 complex setup
+
+### 14-Step Module Processing Flow
+See `docs/module_decorator_system.md` for complete documentation.
+
+The `ModuleProcessor` executes these steps:
+1. Validate decorator metadata
+2. Enforce data integrity
+3. Process dependencies
+4. Store service metadata
+5. Process Settings V2 (Pydantic model registration)
+6. Register databases/models
+7. Register API endpoints
+8. Setup health checks
+9. Process shutdown metadata
+10. Process dependency injection
+11. Process initialization sequences (Phase 1 methods)
+12. Process Phase 2 operations
+13. Process auto service creation
+14. Record success
 
 ### Clean Separation
 - **`error_utils.py`** - Pure utilities, no framework dependencies
@@ -73,27 +122,85 @@ The core implements the **centralized registration** pattern:
 All module registration happens through centralized decorators and processors, eliminating the need for separate manifest files.
 
 ### 2. Two-Phase Initialization
-- **Phase 1**: Fast registration (synchronous, cannot fail)
-- **Phase 2**: Complex setup (asynchronous, priority-ordered, graceful failures)
+- **Phase 1**: Infrastructure setup (synchronous, NO service access)
+  - Register Pydantic settings models
+  - Set up basic infrastructure
+  - Execute methods from `@initialization_sequence(phase="phase1")`
+- **Phase 2**: Complex setup (asynchronous, priority-ordered, with service access)
+  - Execute methods from `@phase2_operations()`
+  - Access other services safely
+  - Graceful failure handling
 
-### 3. Circular Dependency Prevention
+### 3. Mandatory Settings Pattern
+ALL modules MUST have:
+- `settings.py` with Pydantic v2 model
+- `setup_infrastructure()` method to register settings
+- `@initialization_sequence("setup_infrastructure", phase="phase1")` decorator
+
+### 4. Circular Dependency Prevention
 - Pure utilities with zero framework dependencies
 - File-based data flow where needed
 - Clean separation between utilities and services
 
-### 4. Service Container Pattern
+### 5. Service Container Pattern
 Central registry for all services, with dependency injection and lifecycle management.
 
 ## Usage Examples
 
-### Service Registration (decorators.py)
-```python
-from core.decorators import register_service, provides_api_endpoints
+### Complete Module Decorator Stack
+See `docs/module_decorator_system.md` for comprehensive examples.
 
-@register_service("my_module.service", priority=100)
-@provides_api_endpoints(router_name="router", prefix="/api/v1")
+```python
+from core.decorators import (
+    inject_dependencies,
+    register_service,
+    ServiceMethod,
+    ServiceParam,
+    ServiceReturn,
+    ServiceExample,
+    initialization_sequence,
+    phase2_operations,
+    auto_service_creation,
+    register_api_endpoints,
+    enforce_data_integrity,
+    graceful_shutdown,
+    force_shutdown
+)
+from core.module_base import DataIntegrityModule
+
+@inject_dependencies('app_context')
+@register_service("module_id.service", methods=[
+    ServiceMethod(
+        name="example_method",
+        description="Example service method",
+        params=[],
+        returns=ServiceReturn("Result", "Result with data"),
+        examples=[ServiceExample("example_method()", "Result.success(...)")],
+        tags=["example"]
+    )
+], priority=100)
+@initialization_sequence("setup_infrastructure", phase="phase1")
+@phase2_operations("initialize_phase2")
+@auto_service_creation(service_class="MyModuleService")
+@register_api_endpoints(router_name="router")
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+@force_shutdown(method="force_cleanup", timeout=5)
 class MyModule(DataIntegrityModule):
-    pass
+    MODULE_ID = "standard.my_module"
+    MODULE_VERSION = "1.0.0"
+    MODULE_DESCRIPTION = "Example module"
+
+    def setup_infrastructure(self):
+        """Phase 1: Register Pydantic settings model (NO service access)."""
+        from .settings import MyModuleSettings
+        self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+
+    async def initialize_phase2(self):
+        """Phase 2: Complex initialization with service access."""
+        settings_service = self.app_context.get_service("core.settings.service")
+        # ... complex initialization
+        return True
 ```
 
 ### Service Access (app_context.py)
@@ -107,13 +214,21 @@ service = app_context.get_service("other_module.service")
 from core.error_utils import Result, error_message
 
 # Service method
-def my_operation() -> Result:
+async def my_operation() -> Result:
     try:
         # Business logic
         return Result.success(data=result)
     except Exception as e:
-        logger.error(error_message("my_module", "OPERATION_FAILED", str(e)))
-        return Result.error("OPERATION_FAILED", "Operation failed")
+        logger.error(error_message(
+            module_id="my_module",
+            error_type="OPERATION_FAILED",
+            details=str(e),
+            location="my_operation()"
+        ))
+        return Result.error(
+            code="OPERATION_FAILED",
+            message="Operation failed"
+        )
 ```
 
 ### Path Management (paths.py)
@@ -129,7 +244,7 @@ module_db = get_module_data_path("my_module", "data.db")
 ### External Dependencies
 - **FastAPI** - Web framework and API routing
 - **SQLAlchemy** - Database ORM and async support
-- **Pydantic** - Data validation and settings management
+- **Pydantic** - Data validation and settings management (v2)
 - **asyncio** - Asynchronous programming support
 
 ### Internal Dependencies
@@ -137,33 +252,10 @@ module_db = get_module_data_path("my_module", "data.db")
 - **Well-defined interfaces** - Clear contracts between components
 - **Dependency injection** - Services accessed through app_context
 
-## Development Guidelines
+## Documentation References
 
-### Adding New Core Functionality
-1. **Consider the separation of concerns** - utilities vs. framework services
-2. **Avoid circular imports** - use file-based communication if needed
-3. **Follow the service container pattern** - register services, don't import directly
-4. **Maintain backward compatibility** - core changes affect all modules
+- **`docs/core/module_decorator_system.md`** - Complete decorator system documentation
+- **`docs/database.md`** - Database architecture and patterns
+- **`CLAUDE.md`** - Framework overview and development guidelines
 
-### Modifying Existing Core Files
-1. **Test thoroughly** - core changes affect the entire framework
-2. **Update documentation** - especially if interfaces change
-3. **Consider migration impact** - how will existing modules be affected?
-4. **Maintain clean architecture** - don't introduce new dependencies
-
-## Files You Probably Don't Need to Modify
-
-Unless you're working on framework internals, most development happens in `modules/` directories. The core framework is designed to be stable and rarely requires changes:
-
-- **`app_context.py`** - Stable service container
-- **`module_loader.py`** - Mature module discovery
-- **`decorators.py`** - Complete decorator set
-- **`error_utils.py`** - Stable utility functions
-
-## Files You Might Extend
-
-- **`module_base.py`** - Add new base classes for specialized module types
-- **`paths.py`** - Add new path utilities as needed
-- **`decorators.py`** - Add new decorators for specialized functionality
-
-The core framework provides a solid, stable foundation for building modular applications with clean architecture and reliable initialization patterns.
+The core framework provides a solid, stable foundation for building modular applications with clean architecture, enforced patterns, and reliable initialization.
