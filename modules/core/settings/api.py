@@ -24,6 +24,8 @@ from core.decorators import (
     force_shutdown,
     require_services,
     register_api_endpoints,
+    register_database,
+    module_health_check,
     inject_dependencies,
 )
 from core.module_base import DataIntegrityModule
@@ -138,7 +140,9 @@ logger = get_framework_logger(MODULE_ID)
 @phase2_operations("initialize_phase2", priority=10)
 @auto_service_creation(service_class="SettingsService")
 @register_api_endpoints(router_name="router")
+@register_database(database_name=None)
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
+@module_health_check(check_function=None)
 # Note: Decorator timeouts will be configurable via environment variables CORE_SETTINGS_GRACEFUL_SHUTDOWN_TIMEOUT=30
 @graceful_shutdown(method="cleanup_resources", timeout=30)
 @force_shutdown(method="force_cleanup", timeout=5)

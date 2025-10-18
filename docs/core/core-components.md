@@ -36,15 +36,23 @@ The `core/` directory contains the essential infrastructure that powers the Modu
 
 ### Module System
 
-**`decorators.py`** - Decorator Registration System
-- **Purpose**: Centralized module registration using decorators
-- **Key Features**:
-  - `@register_service` - Register services with automatic discovery
-  - `@register_api_endpoints` - Automatic API route registration
-  - `@enforce_data_integrity` - Data integrity validation
-  - `@module_health_check` - Automatic health monitoring
-  - Eliminates boilerplate registration code
-- **Philosophy**: Single point of control for all module behavior
+**`decorators.py`** - Decorator Registration System (MANDATORY-ALL-DECORATORS)
+- **Purpose**: Centralized module registration using 12 mandatory decorators
+- **Architecture**: ALL modules MUST have ALL 12 decorators in specified order
+- **The 12 Mandatory Decorators**:
+  1. `@inject_dependencies('app_context')` - Dependency injection
+  2. `@register_service(...)` - Service registration with methods
+  3. `@require_services([...])` - Service dependencies (empty list if none)
+  4. `@initialization_sequence("setup_infrastructure", phase="phase1")` - Phase 1 setup
+  5. `@phase2_operations("initialize_phase2")` - Phase 2 initialization
+  6. `@auto_service_creation(service_class="...")` - Service instance creation
+  7. `@register_api_endpoints(router_name="router")` - API route registration
+  8. `@register_database(database_name=...)` - Database registration (None if no database)
+  9. `@enforce_data_integrity(strict_mode=True, anti_mock=True)` - Integrity validation
+  10. `@module_health_check(check_function=None)` - Health monitoring
+  11. `@graceful_shutdown(method="cleanup_resources", timeout=30)` - Async cleanup
+  12. `@force_shutdown(method="force_cleanup", timeout=5)` - Sync force cleanup
+- **Philosophy**: Uniform processing, no configuration drift, predictable behavior
 
 **`module_base.py`** - Base Module Classes
 - **Purpose**: Foundation classes with built-in integrity enforcement
@@ -65,13 +73,29 @@ The `core/` directory contains the essential infrastructure that powers the Modu
   - Manages module dependencies and initialization order
   - Coordinates two-phase initialization (registration → complex setup)
 
-**`module_processor.py`** - Module Processing Engine
-- **Purpose**: Processes modules through their lifecycle phases
+**`module_processor.py`** - Module Processing Engine (14-STEP PIPELINE)
+- **Purpose**: Processes modules through 14-step centralized pipeline
+- **The 14 Processing Steps**:
+  1. Validate decorator metadata
+  2. Enforce data integrity
+  3. Process dependencies
+  4. Store service metadata
+  5. Process Settings V2
+  6. Register databases/models
+  7. Register API endpoints
+  8. Setup health checks
+  9. Process shutdown metadata
+  10. Process dependency injection
+  11. Process initialization sequences
+  12. Process Phase 2 operations
+  13. Process auto service creation
+  14. Record success
 - **Key Features**:
-  - Phase 1: Infrastructure setup and service registration
-  - Phase 2: Complex initialization with service dependencies
+  - Uniform processing for all modules (14/14 steps)
+  - MODULE COMPLIANCE warnings for missing decorators
+  - Phase 1: `setup_infrastructure()` for settings registration
+  - Phase 2: `initialize_phase2()` for complex initialization
   - Error handling and rollback capabilities
-  - Service instantiation and app_context integration
 
 ### Database System
 
@@ -115,27 +139,57 @@ The `core/` directory contains the essential infrastructure that powers the Modu
 
 ### Two-Phase Initialization
 
-1. **Phase 1 (Registration)**: Infrastructure setup only
-   - Services register with app_context
-   - Settings schemas registered
-   - No access to other services
-   - Handled by `setup_infrastructure()` methods
+1. **Phase 1: setup_infrastructure() (MANDATORY)**: Settings registration
+   - ALL modules MUST register Pydantic settings models
+   - NO access to other services (services don't exist yet)
+   - Handled by `setup_infrastructure()` method
+   - Synchronous only
 
-2. **Phase 2 (Complex Operations)**: Full framework access  
+   ```python
+   def setup_infrastructure(self):
+       """Phase 1: MANDATORY settings registration"""
+       from .settings import MyModuleSettings
+       self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+   ```
+
+2. **Phase 2: initialize_phase2() (MANDATORY)**: Complex initialization
+   - Full framework access - all services available
    - Database operations and external connections
-   - Service dependencies available
-   - Handled by `initialize_service()` methods
+   - Service dependencies available via `@require_services`
+   - Handled by `initialize_phase2()` method
+   - Async operations allowed
 
-### Service Discovery System
+   ```python
+   async def initialize_phase2(self):
+       """Phase 2: Complex initialization with service access"""
+       if self.service_instance:
+           return await self.service_instance.initialize()
+       return False
+   ```
+
+### Service Discovery System (MANDATORY-ALL-DECORATORS)
 
 ```python
-# Services register via decorators
-@register_service("module_name.service")
+# ALL modules must have ALL 12 decorators
+@inject_dependencies('app_context')
+@register_service("standard.my_module.service", methods=[...], priority=100)
+@require_services([])  # Empty list if no external services
+@initialization_sequence("setup_infrastructure", phase="phase1")
+@phase2_operations("initialize_phase2")
+@auto_service_creation(service_class="MyModuleService")
+@register_api_endpoints(router_name="router")
+@register_database(database_name=None)  # None if no database
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+@module_health_check(check_function=None)
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+@force_shutdown(method="force_cleanup", timeout=5)
 class MyModule(DataIntegrityModule):
-    pass
+    MODULE_ID = "standard.my_module"
+    MODULE_VERSION = "1.0.0"
+    MODULE_DESCRIPTION = "My application module"
 
 # Other modules access via app_context
-service = app_context.get_service("module_name.service")
+service = app_context.get_service("standard.my_module.service")
 ```
 
 ### Database Access Pattern
@@ -160,26 +214,36 @@ async def some_operation() -> Result:
         return Result.error("OPERATION_FAILED", str(e))
 ```
 
-## Module Integration Flow
+## Module Integration Flow (14-STEP PIPELINE)
 
-1. **Discovery**: `module_manager.py` scans for modules
-2. **Registration**: Decorators in `decorators.py` process module metadata
-3. **Phase 1**: `module_processor.py` calls `setup_infrastructure()`
-4. **Phase 2**: `module_processor.py` calls `initialize_service()`
-5. **Runtime**: Services available via `app_context.get_service()`
+1. **Discovery**: `module_manager.py` scans for modules in `modules/` directories
+2. **Load Decorators**: `decorators.py` processes ALL 12 mandatory decorators
+3. **Validate Compliance**: Check all 12 decorators are present (MODULE COMPLIANCE warnings)
+4. **14-Step Processing**: `module_processor.py` executes centralized pipeline
+5. **Phase 1 Execution**: Call `setup_infrastructure()` for settings registration
+6. **Service Creation**: `@auto_service_creation` creates service instances
+7. **Phase 2 Execution**: Call `initialize_phase2()` for complex initialization
+8. **Runtime**: Services available via `app_context.get_service()`
+
+**Success Indicator**: Module shows "14/14 steps completed" in logs
 
 ## Development Guidelines
 
 ### For Framework Development
 - **Never modify core files casually** - They affect all modules
 - **Test changes thoroughly** - Core changes impact entire framework
-- **Follow existing patterns** - Consistency is critical for infrastructure
+- **Maintain 14-step pipeline** - All modules must complete all 14 steps
+- **Follow mandatory-all-decorators** - No exceptions or special cases
 - **Document architectural changes** - Core modifications need documentation
 
 ### For Application Development
-- **Use base classes** - `DataIntegrityModule` for all custom modules  
-- **Use decorators** - `@register_service` and `@register_api_endpoints`
-- **Follow two-phase pattern** - Phase 1 for registration, Phase 2 for complex operations
+- **ALWAYS use scaffolding tool** - `python tools/scaffold_module.py`
+- **ALL 12 decorators required** - No skipping decorators (use None/empty for unused)
+- **Use base classes** - `DataIntegrityModule` for all modules
+- **Follow two-phase pattern**:
+  - Phase 1: `setup_infrastructure()` for settings registration ONLY
+  - Phase 2: `initialize_phase2()` for complex initialization
 - **Use Result pattern** - For explicit error handling in business logic
+- **Implement cleanup methods** - Both `cleanup_resources()` and `force_cleanup()`
 
-The core system provides a solid, tested foundation that handles the complex infrastructure so modules can focus on their specific functionality. The decorator-based registration system ensures consistency and eliminates common integration errors.
+The core system provides a solid, tested foundation with **mandatory-all-decorators architecture** that ensures consistent processing across all modules. The 14-step pipeline eliminates configuration drift and guarantees uniform behavior.

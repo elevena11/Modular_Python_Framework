@@ -165,7 +165,7 @@ from typing import Dict, List, Any, Union, Optional
 from core.logging import get_framework_logger
 from core.error_utils import error_message
 from core.decorators import (
-{decorators['imports']},
+{decorators['imports']}
     initialization_sequence
 )
 from core.module_base import DataIntegrityModule
@@ -330,11 +330,12 @@ async def get_info():
     }}'''
     
     def _generate_decorators(self, config: Dict[str, Any], module_id: str) -> Dict[str, str]:
-        """Generate decorator imports and decorators based on features."""
+        """Generate complete decorator stack - ALL 12 decorators are MANDATORY."""
         imports = []
         decorators = []
-        
-        # Always include basic decorators and service discovery classes
+
+        # ALWAYS include ALL decorators and service discovery classes
+        # Mandatory-all-decorators architecture: every module has the same decorator stack
         imports.extend([
             "    inject_dependencies,",
             "    register_service,",
@@ -342,45 +343,53 @@ async def get_info():
             "    ServiceParam,",
             "    ServiceReturn,",
             "    ServiceExample,",
+            "    require_services,",
             "    auto_service_creation,",
             "    phase2_operations,",
+            "    register_api_endpoints,",
+            "    register_database,",
             "    enforce_data_integrity,",
+            "    module_health_check,",
             "    graceful_shutdown,",
             "    force_shutdown,"
         ])
-        
-        # Add feature-specific decorators
-        if 'database' in config['features']:
-            imports.append("    require_services,")
-        if 'api' in config['features']:
-            imports.append("    register_api_endpoints,")
-            
-        # Build decorator list with enhanced service discovery - inject_dependencies must be first
+
+        # Build complete decorator list - inject_dependencies must be first
         decorators.append('@inject_dependencies(\'app_context\')')
 
         service_methods = self._generate_service_methods(config, module_id)
         decorators.append(f'@register_service("{module_id}.service", methods=[')
         decorators.extend(service_methods)
         decorators.append('], priority=100)')
-        
+
+        # Require services - use empty list if no database, otherwise include database services
         if 'database' in config['features']:
             decorators.append('@require_services(["core.database.service", "core.database.crud_service"])')
+        else:
+            decorators.append('@require_services([])')
 
         # Phase 1 initialization sequence - MANDATORY for settings registration
         decorators.append('@initialization_sequence("setup_infrastructure", phase="phase1")')
 
         decorators.append('@phase2_operations("initialize_phase2")')
         decorators.append('@auto_service_creation(service_class="' + config['name'].replace('_', ' ').title().replace(' ', '') + 'Service")')
-        
-        if 'api' in config['features']:
-            decorators.append('@register_api_endpoints(router_name="router")')
-            
+
+        # Register API endpoints - always included (router can be empty if no API)
+        decorators.append('@register_api_endpoints(router_name="router")')
+
+        # Register database - use None if no database
+        if 'database' in config['features']:
+            decorators.append(f'@register_database(database_name="{config["name"]}")')
+        else:
+            decorators.append('@register_database(database_name=None)')
+
         decorators.extend([
             '@enforce_data_integrity(strict_mode=True, anti_mock=True)',
+            '@module_health_check(check_function=None)',
             '@graceful_shutdown(method="cleanup_resources", timeout=30)',
             '@force_shutdown(method="force_cleanup", timeout=5)'
         ])
-        
+
         return {
             'imports': '\n'.join(imports),
             'decorators': '\n'.join(decorators)
@@ -590,12 +599,14 @@ logger = get_framework_logger(MODULE_ID)  # Framework-aware logging
 
 class {class_name}Service:
     """Main service for the {config['name']} module."""
-    
-    def __init__(self):
-        """FULL decorator initialization - NO manual dependencies."""
+
+    def __init__(self, app_context=None):
+        """FULL decorator initialization with dependency injection."""
+        self.app_context = app_context
         self.initialized = False
         self.logger = logger
-        
+        self._dependency_service = None
+
         logger.info(f"{{MODULE_ID}} service created")
     
     @property
@@ -1465,47 +1476,10 @@ def test_ui_registration():
         self.generate_tests(config)
         
         # NOTE: compliance.md is NOT generated - it should be created by compliance.py
-        
-        print(f"\\nFramework-compliant module '{config['name']}' scaffolded successfully!")
+
+        print(f"\\nModule '{config['name']}' created successfully")
         print(f"Location: {module_path}")
-        
-        print(f"\\nDevelopment Workflow:")
-        print(f"1. Module scaffolded (DONE)")
-        print(f"2. Implement your business logic in services.py")
-        print(f"3. Add environment variables if handling sensitive data")
-        print(f"4. Run unit tests: pytest tests/modules/{config['type']}/{config['name']}/")
-        print(f"")
-        print(f"BEFORE TESTING FRAMEWORK INTEGRATION:")
-        print(f"5. Run compliance check:")
-        print(f"   python tools/compliance/compliance.py validate --module {config['type']}.{config['name']}")
-        print(f"6. Fix any compliance issues found")
-        print(f"")
-        print(f"THEN TEST FRAMEWORK INTEGRATION:")
-        print(f"7. Test module loading: python app.py")
-        print(f"8. Debug any remaining integration issues")
-        
-        print(f"\\n" + "="*80)
-        print(f"IMPORTANT: Framework Guidelines")
-        print(f"="*80)
-        print(f"- Use Result pattern: All service methods return Result objects")
-        print(f"- Error handling: Import and use error_message utility")
-        print(f"- Environment variables: Use os.getenv() for sensitive data")
-        print(f"- Settings validation: Use 'bool', 'int', 'float' (not 'boolean', 'integer')")
-        print(f"")
-        print(f"Complete guide: docs/enhanced-module-creation-workflow.md")
-        print(f"="*80)
-        
-        print(f"\\nMulti-component modules:")
-        print(f"   If creating multiple interdependent components, review:")
-        print(f"   docs/llm-agent-project/service-registration-circular-dependency-issue.md")
-        
-        print(f"\\nSuccess Criteria:")
-        print(f"   - Compliance for implemented features (use Exceptions section in compliance.md")
-        print(f"     to document why features aren't used: 'module does not use database')")
-        print(f"   - Module loads without errors")
-        print(f"   - All tests pass")
-        print(f"   - Environment variables used for sensitive data")
-        print(f"   - Create readme.md after module implementation is complete")
+        print(f"\\nNext: Implement business logic in services.py")
     
 
 def main():

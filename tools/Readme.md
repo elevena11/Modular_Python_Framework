@@ -228,7 +228,3 @@ python tools/compliance/compliance.py --validate-all
 - **Gradio UI support deprecated** - framework now uses Streamlit exclusively
 - **Legacy dual-UI infrastructure remains** for compatibility but only Streamlit is actively used
 - **Compliance tools updated** to reflect current framework state and skip deprecated patterns
-
----
-
-*These tools support the Modular Framework's philosophy of data-driven development and AI-agent-ready code patterns.*

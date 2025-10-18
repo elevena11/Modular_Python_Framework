@@ -59,12 +59,27 @@ modules/standard/my_module/
 ```
 
 #### Key Features
-- **Framework compliance** - Follows all current patterns and standards
+- **100% Framework Compliance** - ALL 12 mandatory decorators included
+- **Mandatory-All-Decorators** - No missing decorators, guaranteed 14/14 processing steps
 - **Error handling** - Result pattern implemented in all generated code
-- **Two-phase initialization** - Proper Phase 1/Phase 2 structure
-- **Decorator usage** - `@register_service` and `@register_api_endpoints`
+- **Two-phase initialization** - Proper `setup_infrastructure()` and `initialize_phase2()`
+- **Complete decorator stack** - All 12 decorators in correct order:
+  1. `@inject_dependencies('app_context')`
+  2. `@register_service(...)`
+  3. `@require_services([...])`
+  4. `@initialization_sequence("setup_infrastructure", phase="phase1")`
+  5. `@phase2_operations("initialize_phase2")`
+  6. `@auto_service_creation(service_class="...")`
+  7. `@register_api_endpoints(router_name="router")`
+  8. `@register_database(database_name=...)`
+  9. `@enforce_data_integrity(strict_mode=True, anti_mock=True)`
+  10. `@module_health_check(check_function=None)`
+  11. `@graceful_shutdown(method="cleanup_resources", timeout=30)`
+  12. `@force_shutdown(method="force_cleanup", timeout=5)`
+- **Lifecycle methods** - Includes `cleanup_resources()` and `force_cleanup()`
 - **Database integration** - integrity_session pattern if database selected
-- **Type safety** - Full type hints and Pydantic validation
+- **Type safety** - Full type hints and Pydantic v2 validation
+- **Settings registration** - Mandatory Phase 1 Pydantic settings registration
 
 #### Available Features
 
@@ -319,14 +334,31 @@ python tools/error_analysis/compliance_insights.py
 
 ### Common Compliance Issues
 
+**"MODULE COMPLIANCE: Missing decorators"**
+- Solution: Use scaffolding tool to generate modules with all 12 decorators
+- Never manually create modules - always use `python tools/scaffold_module.py`
+
 **"Service Registration Pattern: No"**
-- Solution: Add `@register_service("module_name.service")` decorator
+- Solution: Add `@register_service("module_name.service", methods=[...])` with full method documentation
+
+**"Missing @require_services decorator"**
+- Solution: Add `@require_services([])` even if module has no external dependencies
+
+**"Missing @register_database decorator"**
+- Solution: Add `@register_database(database_name=None)` if module doesn't use database
+
+**"Missing @module_health_check decorator"**
+- Solution: Add `@module_health_check(check_function=None)` for default health check
 
 **"Missing integrity_session_pattern"**
 - Solution: Use `async with app_context.database.integrity_session()` for database operations
 
 **"Two-Phase Initialization: No"**
-- Solution: Implement both `setup_infrastructure()` and `initialize_service()` methods
+- Solution: Implement both `setup_infrastructure()` (Phase 1) and `initialize_phase2()` (Phase 2)
+- Phase 1 MUST register Pydantic settings model
+
+**"Missing cleanup methods"**
+- Solution: Implement both `cleanup_resources()` (async) and `force_cleanup()` (sync)
 
 ### Update System Issues
 

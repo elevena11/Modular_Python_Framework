@@ -1,6 +1,6 @@
 {
-  "version": "1.0.7",
-  "generated_at": "2025-10-17T18:16:25.376638",
+  "version": "1.0.8",
+  "generated_at": "2025-10-18T16:32:09.856701",
   "framework_files": [
     ".env.example",
     "CLAUDE.md",
@@ -18,7 +18,6 @@
     "core/module_processor.py",
     "core/paths.py",
     "core/version.py",
-    "docs/README.md",
     "docs/core",
     "docs/core/architecture.md",
     "docs/core/core-components.md",
@@ -26,10 +25,10 @@
     "docs/core/decorators.md",
     "docs/core/development-tools.md",
     "docs/core/error-handling.md",
-    "docs/core/framework-updates.md",
     "docs/core/framework_updates.md",
     "docs/core/model_manager.md",
     "docs/core/module-development-guide.md",
+    "docs/core/module_decorator_system.md",
     "docs/core/settings.md",
     "docs/core/streamlit-ui.md",
     "framework_manifest.json",
@@ -180,7 +179,6 @@
     "tools/pytest_compliance.py",
     "tools/rebuild_index.py",
     "tools/scaffold_module.py",
-    "tools/scaffold_module_backup.py",
     "tools/search_docs.py",
     "tools/test_module.py",
     "tools/test_update_system.py",
@@ -230,6 +228,6 @@
     "ui/utils/security.py",
     "update_core.py"
   ],
-  "file_count": 227,
+  "file_count": 225,
   "generator": "tools/generate_manifest.py"
 }

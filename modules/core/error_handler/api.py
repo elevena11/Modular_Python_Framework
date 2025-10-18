@@ -28,7 +28,9 @@ from core.decorators import (
     inject_dependencies,
     initialization_sequence,
     phase2_operations,
-    auto_service_creation
+    auto_service_creation,
+    register_api_endpoints,
+    register_database
 )
 from core.module_base import DataIntegrityModule
 
@@ -178,6 +180,8 @@ from .settings import ErrorHandlerSettings
 @auto_service_creation(service_class="ErrorRegistry")
 @initialization_sequence("setup_infrastructure", "create_registry", phase="phase1")
 @phase2_operations("initialize_phase2", dependencies=["core.settings.service"], priority=20)
+@register_api_endpoints(router_name="router")
+@register_database(database_name=None)
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @graceful_shutdown(method="cleanup_resources", timeout=30, priority=20)
@@ -330,10 +334,20 @@ class ErrorHandlerModule(DataIntegrityModule):
                 self.error_registry.shutdown()
     
     def force_cleanup(self):
-        """Framework calls automatically during force shutdown - only cleanup logic.""" 
+        """Framework calls automatically during force shutdown - only cleanup logic."""
         # Only cleanup logic here - framework handles all logging automatically!
         if self.error_registry and hasattr(self.error_registry, 'force_close'):
             self.error_registry.force_close()
+
+# API ENDPOINTS (Registered automatically via decorator)
+
+from fastapi import APIRouter
+
+# Create router for error handler endpoints
+router = APIRouter(tags=["error-handler"])
+
+# No routes defined - module provides utilities via direct import pattern
+# Error handler functionality is accessed through error_utils.py, not API endpoints
 
 # MODULE CONSTANTS
 

@@ -1,92 +1,104 @@
 # Decorator Patterns
 
-The framework uses decorators to provide clean, declarative module registration. This document covers all decorator patterns and their usage.
+The framework uses a **mandatory-all-decorators architecture** where ALL modules must include ALL 12 decorators. This provides clean, declarative module registration with consistent processing across all modules.
 
-## Core Decorators
+## CRITICAL: Mandatory-All-Decorators Architecture
 
-### @register_service
+**Every module MUST have ALL 12 decorators in the specified order:**
+1. `@inject_dependencies('app_context')`
+2. `@register_service(...)`
+3. `@require_services([...])`
+4. `@initialization_sequence("setup_infrastructure", phase="phase1")`
+5. `@phase2_operations("initialize_phase2")`
+6. `@auto_service_creation(service_class="...")`
+7. `@register_api_endpoints(router_name="router")`
+8. `@register_database(database_name=...)`
+9. `@enforce_data_integrity(strict_mode=True, anti_mock=True)`
+10. `@module_health_check(check_function=None)`
+11. `@graceful_shutdown(method="cleanup_resources", timeout=30)`
+12. `@force_shutdown(method="force_cleanup", timeout=5)`
 
-Registers a service with the framework's service discovery system.
+**Use `None` or empty values for unused features** - e.g., `@register_database(database_name=None)` if the module doesn't use a database.
 
-```python
-from core.decorators import register_service
-from core.module_base import DataIntegrityModule
+## The 12 Mandatory Decorators
 
-@register_service("my_module.service")
-class MyModule(DataIntegrityModule):
-    MODULE_ID = "standard.my_module"
-    MODULE_VERSION = "1.0.0" 
-    MODULE_DESCRIPTION = "My application module"
-```
+### 1. @inject_dependencies
+**Required:** MANDATORY - All modules need app_context
 
-**Parameters:**
-- `service_name` (str): Unique service identifier in format `module_name.service`
-
-**Behavior:**
-- Registers the class as a service during framework initialization
-- Makes the service available via `app_context.get_service(service_name)`
-- Enables dependency injection in other modules
-
-### @register_api_endpoints
-
-Registers FastAPI router endpoints for automatic discovery.
+Automatically injects dependencies into module constructor.
 
 ```python
-from fastapi import APIRouter
-from core.decorators import register_api_endpoints
-
-@register_service("my_module.service")
-@register_api_endpoints("router")
+@inject_dependencies('app_context')
 class MyModule(DataIntegrityModule):
     def __init__(self):
-        # Router automatically gets standard path: /api/v1/standard/my_module
-        self.router = APIRouter(tags=["my-module"])
-        
-        @self.router.get("/status")
-        async def get_status():
-            return {"status": "active"}
+        super().__init__()
+        # self.app_context is automatically injected
 ```
 
 **Parameters:**
-- `router_name` (str): Name of the router attribute (default: "router")
+- `*dependency_names` (str): Dependencies to inject (always use `'app_context'`)
 
-**Behavior:**
-- Automatically generates API path based on module ID
-- Standard path pattern: `/api/v1/{module_type}/{module_name}`
-- Integrates with FastAPI's automatic documentation
-- No manual route registration needed
+### 2. @register_service
+**Required:** MANDATORY - All modules must define service interface
 
-### @require_services
-
-Declares service dependencies and enables safe service access via `get_required_service()`.
+Registers service with full method documentation for discovery.
 
 ```python
-from core.decorators import require_services
+@register_service("standard.my_module.service", methods=[
+    ServiceMethod(
+        name="initialize",
+        description="Initialize module service",
+        params=[],
+        returns=ServiceReturn("bool", "Initialization success"),
+        examples=[ServiceExample("initialize()", "True")],
+        tags=["initialization"]
+    )
+], priority=100)
+```
 
-@require_services(["core.settings.service", "core.database.service"])
+**Parameters:**
+- `service_name` (str): Unique service identifier
+- `methods` (List[ServiceMethod]): Full service interface documentation
+- `priority` (int): Service priority (default: 100)
+
+### 3. @require_services
+**Required:** MANDATORY - Use empty list `[]` if no external services needed
+
+Declares required services from other modules.
+
+```python
+@require_services(["core.database.service"])  # With dependencies
+# or
+@require_services([])  # No dependencies
+```
+
+**Parameters:**
+- `service_names` (List[str]): Required service names (empty list if none)
+
+### 4. @initialization_sequence
+**Required:** MANDATORY - ALL modules MUST register Pydantic settings
+
+Defines Phase 1 initialization for settings registration.
+
+```python
+@initialization_sequence("setup_infrastructure", phase="phase1")
 class MyModule(DataIntegrityModule):
-    async def initialize_phase2(self):
-        # Services guaranteed available via decorator
-        settings_service = self.get_required_service("core.settings.service")
-        database_service = self.get_required_service("core.database.service")
+    def setup_infrastructure(self):
+        from .settings import MyModuleSettings
+        self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
 ```
 
 **Parameters:**
-- `services` (List[str]): List of required service names
+- `*method_names` (str): Method names to call (use `"setup_infrastructure"`)
+- `phase` (str): Initialization phase (use `"phase1"`)
 
-**Behavior:**
-- Ensures services are available before Phase 2 operations
-- Provides safe `get_required_service()` method for accessing dependencies
-- Framework validates dependencies are met before initialization
+### 5. @phase2_operations
+**Required:** MANDATORY - All modules use this for service initialization
 
-### @phase2_operations
-
-Defines Phase 2 initialization methods with optional priority ordering.
+Defines Phase 2 complex initialization methods.
 
 ```python
-from core.decorators import phase2_operations
-
-@phase2_operations("initialize_phase2", priority=100)
+@phase2_operations("initialize_phase2")
 class MyModule(DataIntegrityModule):
     async def initialize_phase2(self):
         # Complex initialization with service access
@@ -94,13 +106,117 @@ class MyModule(DataIntegrityModule):
 ```
 
 **Parameters:**
-- `method_name` (str): Name of Phase 2 method (standardized to "initialize_phase2")
-- `priority` (int): Initialization order (lower numbers = earlier, default: 100)
+- `*method_names` (str): Method names to call (use `"initialize_phase2"`)
+- `priority` (int): Initialization order (default: 100)
 
-**Behavior:**
-- Automatically calls the specified method during Phase 2
-- Ensures proper initialization order across modules
-- Standard priorities: core infrastructure (5-10), services (20-40), application (100)
+### 6. @auto_service_creation
+**Required:** MANDATORY - All modules must have service instance
+
+Automatically creates service instance with injected dependencies.
+
+```python
+@auto_service_creation(service_class="MyModuleService")
+class MyModule(DataIntegrityModule):
+    def __init__(self):
+        super().__init__()
+        self.service_instance = None  # Auto-created by decorator
+```
+
+**Parameters:**
+- `service_class` (str): Service class name from services.py
+
+### 7. @register_api_endpoints
+**Required:** MANDATORY - Use `router_name="router"` even if router is empty
+
+Registers FastAPI routes automatically.
+
+```python
+@register_api_endpoints(router_name="router")
+class MyModule(DataIntegrityModule):
+    pass
+
+# In api.py, define router
+router = APIRouter(prefix="/my_module", tags=["my_module"])
+```
+
+**Parameters:**
+- `router_name` (str): Router attribute name (always use `"router"`)
+
+### 8. @register_database
+**Required:** MANDATORY - Use `database_name=None` if no database needed
+
+Registers database requirements.
+
+```python
+@register_database(database_name="my_module")  # With database
+# or
+@register_database(database_name=None)  # No database
+```
+
+**Parameters:**
+- `database_name` (str): Database name or None
+
+### 9. @enforce_data_integrity
+**Required:** MANDATORY - All modules must declare integrity mode
+
+Enforces data integrity requirements.
+
+```python
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+```
+
+**Parameters:**
+- `strict_mode` (bool): Strict integrity checks (always True)
+- `anti_mock` (bool): Prevent mocking (always True)
+
+### 10. @module_health_check
+**Required:** MANDATORY - Use `check_function=None` or custom function
+
+Registers periodic health check.
+
+```python
+@module_health_check(check_function=None)  # Default
+# or
+@module_health_check(interval=300)  # Custom interval
+```
+
+**Parameters:**
+- `check_function` (Callable): Custom health check or None
+- `interval` (int): Check interval in seconds (default: 300)
+
+### 11. @graceful_shutdown
+**Required:** MANDATORY - All modules must define cleanup
+
+Registers async cleanup method.
+
+```python
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+class MyModule(DataIntegrityModule):
+    async def cleanup_resources(self):
+        # Async cleanup
+        pass
+```
+
+**Parameters:**
+- `method` (str): Cleanup method name (use `"cleanup_resources"`)
+- `timeout` (int): Timeout in seconds (default: 30)
+
+### 12. @force_shutdown
+**Required:** MANDATORY - All modules must define emergency cleanup
+
+Registers sync force cleanup.
+
+```python
+@force_shutdown(method="force_cleanup", timeout=5)
+class MyModule(DataIntegrityModule):
+    def force_cleanup(self):
+        # Sync emergency cleanup
+        pass
+```
+
+**Parameters:**
+- `method` (str): Force cleanup method name (use `"force_cleanup"`)
+- `timeout` (int): Timeout in seconds (default: 5)
 
 ## Module Constants
 
@@ -119,58 +235,119 @@ class MyModule(DataIntegrityModule):
 - `core.module_name` - Framework modules
 - `extensions.module_name` - Extension modules
 
-## Complete Module Example
+## Complete Module Example (ALL 12 DECORATORS)
 
 ```python
-# modules/standard/user_manager/api.py
+# modules/standard/my_module/api.py
 from fastapi import APIRouter, Request, HTTPException
 from core.decorators import (
-    register_service, register_api_endpoints, require_services,
-    phase2_operations, auto_service_creation, inject_dependencies
+    inject_dependencies,
+    register_service,
+    ServiceMethod,
+    ServiceParam,
+    ServiceReturn,
+    ServiceExample,
+    require_services,
+    auto_service_creation,
+    phase2_operations,
+    initialization_sequence,
+    register_api_endpoints,
+    register_database,
+    enforce_data_integrity,
+    module_health_check,
+    graceful_shutdown,
+    force_shutdown
 )
 from core.module_base import DataIntegrityModule
-from .services import UserService
-from .api_schemas import CreateUserRequest, UserResponse
+from core.logging import get_framework_logger
 
-@register_service("user_manager.service")
-@register_api_endpoints("router")
-@require_services(["core.settings.service", "core.database.service"])
-@phase2_operations("initialize_phase2", priority=100)
-@auto_service_creation(service_class="UserService")
-@inject_dependencies("app_context")
-class UserManagerModule(DataIntegrityModule):
-    MODULE_ID = "standard.user_manager"
+logger = get_framework_logger("standard.my_module")
+
+# MANDATORY: ALL 12 DECORATORS IN CORRECT ORDER
+@inject_dependencies('app_context')
+@register_service("standard.my_module.service", methods=[
+    ServiceMethod(
+        name="initialize",
+        description="Initialize module service",
+        params=[],
+        returns=ServiceReturn("bool", "Initialization success"),
+        examples=[ServiceExample("initialize()", "True")],
+        tags=["initialization"]
+    ),
+    ServiceMethod(
+        name="get_status",
+        description="Get service status",
+        params=[],
+        returns=ServiceReturn("Result", "Status information"),
+        examples=[ServiceExample("get_status()", "Result.success(...)")],
+        tags=["status"]
+    )
+], priority=100)
+@require_services([])  # Empty list if no external services
+@initialization_sequence("setup_infrastructure", phase="phase1")
+@phase2_operations("initialize_phase2")
+@auto_service_creation(service_class="MyModuleService")
+@register_api_endpoints(router_name="router")
+@register_database(database_name=None)  # None if no database
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+@module_health_check(check_function=None)
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+@force_shutdown(method="force_cleanup", timeout=5)
+class MyModuleModule(DataIntegrityModule):
+    MODULE_ID = "standard.my_module"
     MODULE_VERSION = "1.0.0"
-    MODULE_DESCRIPTION = "User management and authentication"
+    MODULE_DESCRIPTION = "My application module"
 
     def __init__(self):
         super().__init__()
-        self.router = APIRouter(tags=["user-management"])
-        self.setup_routes()
-
-    def setup_routes(self):
-        @self.router.post("/users", response_model=UserResponse)
-        async def create_user(request: CreateUserRequest, http_request: Request):
-            service = http_request.app.state.app_context.get_service("user_manager.service")
-            result = await service.create_user(request.name, request.email)
-
-            if not result.success:
-                raise HTTPException(status_code=400, detail=result.message)
-
-            return UserResponse(id=result.data["id"], name=result.data["name"])
+        self.service_instance = None
+        # app_context injected by @inject_dependencies
 
     def setup_infrastructure(self):
-        """Phase 1: Infrastructure setup only."""
-        self.logger.info(f"{self.MODULE_ID}: Setting up infrastructure")
-        # Create directories, configure logging, etc.
+        """Phase 1: Register Pydantic settings (MANDATORY)"""
+        try:
+            from .settings import MyModuleSettings
+            self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+            logger.info(f"{self.MODULE_ID}: Settings registered")
+        except Exception as e:
+            logger.warning(f"{self.MODULE_ID}: Settings error: {e}")
 
     async def initialize_phase2(self):
-        """Phase 2: Complex initialization with service access."""
-        # Access other services via @require_services pattern
-        settings_service = self.get_required_service("core.settings.service")
-        # Service instance available via @auto_service_creation
+        """Phase 2: Complex initialization with service access"""
         if self.service_instance:
-            await self.service_instance.initialize()
+            return await self.service_instance.initialize()
+        return False
+
+    async def cleanup_resources(self):
+        """Graceful shutdown cleanup"""
+        if self.service_instance:
+            await self.service_instance.cleanup_resources()
+
+    def force_cleanup(self):
+        """Emergency shutdown cleanup"""
+        if self.service_instance:
+            self.service_instance.force_cleanup()
+
+# FastAPI Routes
+router = APIRouter(prefix="/my_module", tags=["my_module"])
+
+@router.get("/status")
+async def get_status(request: Request):
+    """Get module status"""
+    service = request.app.state.app_context.get_service("standard.my_module.service")
+    if not service:
+        raise HTTPException(status_code=503, detail="Service unavailable")
+    result = await service.get_status()
+    return result.data if result.success else {"error": result.message}
+
+@router.get("/info")
+async def get_info():
+    """Get module information"""
+    return {
+        "name": "my_module",
+        "version": "1.0.0",
+        "status": "active"
+    }
 ```
 
 ## Two-Phase Initialization
@@ -291,80 +468,75 @@ class UserService:
             )
 ```
 
-## Common Patterns
+## Using the Scaffolding Tool (RECOMMENDED)
 
-### Service with Database
-```python
-@register_service("data_manager.service")
-class DataManagerModule(DataIntegrityModule):
-    MODULE_ID = "standard.data_manager"
-    
-    async def initialize_service(self):
-        # Set up database tables
-        async with self.app_context.database.integrity_session("data_manager", "setup") as session:
-            # Create tables, initial data, etc.
-            pass
+The easiest way to create modules with all 12 decorators is using the scaffolding tool:
+
+```bash
+python tools/scaffold_module.py --name my_module --type standard --features api,settings
 ```
 
-### API-Only Module
-```python
-@register_api_endpoints("router")  # No @register_service needed
-class ApiOnlyModule(DataIntegrityModule):
-    MODULE_ID = "standard.api_only"
-    
-    def __init__(self):
-        self.router = APIRouter(tags=["api-only"])
-        
-        @self.router.get("/health")
-        async def health_check():
-            return {"status": "healthy"}
+This automatically generates:
+- ALL 12 decorators in correct order
+- Proper decorator values and parameters
+- Complete implementation patterns
+- settings.py, services.py, api.py files
+- 100% framework compliance
+
+**NEVER manually create modules from scratch** - always use the scaffolding tool to ensure compliance.
+
+## Mandatory-All-Decorators Compliance
+
+### MODULE COMPLIANCE Warnings
+
+The framework actively monitors decorator compliance during module processing:
+
+```
+WARNING - core.module_processor - MODULE COMPLIANCE: standard.my_module is missing decorators:
+  - @require_services (empty list [] if no external services)
+  - @register_database (None if no database)
+  - @module_health_check (None for default behavior)
 ```
 
-### Service-Only Module (No API)
-```python
-@register_service("background_processor.service")  # No @register_api_endpoints
-class BackgroundProcessorModule(DataIntegrityModule):
-    MODULE_ID = "standard.background_processor"
-    
-    async def initialize_service(self):
-        # Start background tasks, connect to queues, etc.
-        pass
-```
+**Detection:** Missing decorators are detected during the 14-step processing pipeline
+**Impact:** Module may fail to initialize or lack expected functionality
+**Resolution:** Add ALL 12 decorators using the scaffolding tool
 
-## Error Handling in Decorators
+### Best Practices
 
-The framework handles decorator errors gracefully:
-
-```python
-# If decorator fails, module loading continues but errors are logged
-@register_service("invalid.service.name")  # Bad service name format
-class BadModule(DataIntegrityModule):
-    pass  # Framework will log error and skip this registration
-```
-
-## Best Practices
+1. **Always Use Scaffolding Tool** - Generate 100% compliant modules automatically
+2. **Never Skip Decorators** - All 12 are mandatory, use None/empty values for unused features
+3. **Follow Exact Order** - Decorators must be in the specified order (1-12)
+4. **Phase 1 Required** - ALL modules must register Pydantic settings
+5. **Cleanup Methods Required** - Implement both async and sync cleanup
 
 ### Module Organization
 - **One module per feature** - Keep modules focused
 - **Clear naming** - Use descriptive MODULE_ID values
-- **Consistent structure** - Follow the standard file layout
+- **Consistent structure** - Follow scaffolding tool output
 
-### Decorator Usage
-- **Apply decorators to the module class** - Not individual methods
-- **Use standard service names** - `module_name.service` format
-- **Keep router names simple** - Usually just "router"
+### Initialization Phases
+- **Phase 1: setup_infrastructure()** - Settings registration ONLY, no service access
+- **Phase 2: initialize_phase2()** - Complex initialization with full service access
+- **Use async methods** - For Phase 2, database, and external operations
 
-### Initialization
-- **Phase 1: Infrastructure only** - No service dependencies
-- **Phase 2: Everything else** - Database, services, external connections
-- **Use async methods** - For database and external operations
-
-### Service Design  
-- **Return Result objects** - Consistent error handling
-- **Use typed settings** - Pydantic validation and environment overrides
-- **Database operations via integrity_session** - Automatic lifecycle management
+### Service Design
+- **Return Result objects** - Consistent error handling pattern
+- **Use typed settings** - Pydantic v2 validation
+- **Database via integrity_session** - Automatic lifecycle management
+- **Implement cleanup methods** - Both `cleanup_resources()` and `force_cleanup()`
 
 ## Troubleshooting
+
+### Missing Decorators Warning
+```
+WARNING - MODULE COMPLIANCE: standard.my_module is missing decorators
+```
+
+**Solution:** Use the scaffolding tool to generate compliant modules:
+```bash
+python tools/scaffold_module.py --name my_module --type standard
+```
 
 ### Service Not Found
 ```python
@@ -373,27 +545,28 @@ service = app_context.get_service("my_module.service")
 ```
 
 **Causes:**
-- Missing `@register_service` decorator
+- Missing or incorrect `@register_service` decorator
 - Typo in service name
-- Module not loaded (check logs)
+- Module failed to load (check error logs)
 
-### API Endpoints Not Working
+### Module Not Loading
 ```python
-# Error: 404 Not Found for /api/v1/standard/my_module/status
+# Error: Module 'standard.my_module' failed to initialize
 ```
 
 **Causes:**
-- Missing `@register_api_endpoints` decorator
-- Router not defined in `__init__`
-- Wrong router attribute name in decorator
+- Missing required decorators (check MODULE COMPLIANCE warnings)
+- Syntax error in decorator parameters
+- Missing `setup_infrastructure()` method
+- Missing `initialize_phase2()` method
 
 ### Phase 1 Service Access Error
 ```python
 # Error: Service not available in setup_infrastructure
 def setup_infrastructure(self):
-    service = self.app_context.get_service("other.service")  # Fails!
+    service = self.app_context.get_service("other.service")  # WRONG!
 ```
 
-**Solution:** Move service access to `initialize_service()` (Phase 2)
+**Solution:** NEVER access services in Phase 1. Move service access to `initialize_phase2()`.
 
-The decorator system provides clean, declarative module registration while handling the complex framework integration automatically.
+The mandatory-all-decorators architecture ensures consistent module processing while providing clean, declarative registration patterns.

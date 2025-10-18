@@ -28,7 +28,8 @@ from core.decorators import (
     initialization_sequence,
     phase2_operations,
     auto_service_creation,
-    register_api_endpoints
+    register_api_endpoints,
+    register_database
 )
 from core.module_base import DataIntegrityModule
 
@@ -136,6 +137,7 @@ from .settings import ModelManagerSettings
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @register_api_endpoints(router_name="router")
+@register_database(database_name=None)
 @graceful_shutdown(method="cleanup_resources", timeout=30, priority=40)
 @force_shutdown(method="force_cleanup", timeout=10)
 class ModelManagerModule(DataIntegrityModule):

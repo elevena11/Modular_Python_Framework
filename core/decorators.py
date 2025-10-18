@@ -172,26 +172,28 @@ def _add_decorator_source(cls, decorator_name: str, location: str = None) -> Non
 # ============================================================================
 
 
-def register_service(service_name: str, methods: List[ServiceMethod], 
-                    service_class: Optional[type] = None, priority: int = 100, 
+def register_service(service_name: str, methods: List[ServiceMethod],
+                    service_class: Optional[type] = None, priority: int = 100,
                     dependencies: Optional[List[str]] = None):
     """
     Register a service with required method documentation for discovery system.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     This decorator enforces complete service documentation as infrastructure policy.
     All services must document their public methods for framework discoverability.
-    
+
     Args:
         service_name: Name to register the service under (e.g., "my_module.service")
         methods: REQUIRED list of ServiceMethod objects documenting all public methods
         service_class: Optional service class (auto-detected from module if not provided)
         priority: Initialization priority (lower number = higher priority)
         dependencies: List of service names this service depends on
-        
+
     Example:
         @register_service("my_module.service", methods=[
             ServiceMethod("initialize", "Initialize service", [], ServiceReturn(bool, "Success"))
-        ])
+        ], priority=100)
         class MyModule(DataIntegrityModule):
             MODULE_ID = "standard.my_module"
     """
@@ -281,19 +283,27 @@ def register_multiple_services(**service_configs):
 # DATABASE REGISTRATION DECORATORS
 # ============================================================================
 
-def register_database(database_name: str, auto_create: bool = True, 
+def register_database(database_name: Optional[str] = None, auto_create: bool = True,
                      models: Optional[List[str]] = None):
     """
     Register a database requirement with automatic creation and validation.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Args:
-        database_name: Name of the database to register
+        database_name: Name of the database to register, or None if module has no database
         auto_create: Whether to automatically create the database
         models: List of model names this database should contain
-        
+
     Example:
+        # Module with database:
         @register_database("my_module", models=["User", "Document"])
-        class MyModule(DatabaseEnabledModule):
+        class MyModule(DataIntegrityModule):
+            pass
+
+        # Module without database (mandatory decorator with None):
+        @register_database(database_name=None)
+        class MyModule(DataIntegrityModule):
             pass
     """
     def decorator(cls):
@@ -381,17 +391,26 @@ def requires_modules(module_ids: List[str], optional: bool = False):
 def register_api_endpoints(router_name: str = "router"):
     """
     Register API endpoints for automatic route discovery with standardized paths.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     API paths are automatically generated based on module ID:
-    - Core modules: /api/v1/core/{module_name}  
+    - Core modules: /api/v1/core/{module_name}
     - Standard modules: /api/v1/{module_name}
-    
+
     Args:
-        router_name: Name of the router variable in the module
-        
+        router_name: Name of the router variable in the module (router can be empty if no API endpoints)
+
     Example:
+        # Module with API routes:
         @register_api_endpoints(router_name="router")
         class MyModule(DataIntegrityModule):
+            pass
+
+        # Module without API routes (mandatory decorator with empty router):
+        @register_api_endpoints(router_name="router")
+        class MyModule(DataIntegrityModule):
+            # router = APIRouter() with no routes defined
             pass
     """
     def decorator(cls):
@@ -417,13 +436,15 @@ def register_api_endpoints(router_name: str = "router"):
 def enforce_data_integrity(strict_mode: bool = True, anti_mock: bool = True):
     """
     Enforce strict data integrity requirements on the module.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Args:
         strict_mode: Enable strict data integrity validation
         anti_mock: Enable anti-mock data protection
-        
+
     Example:
-        @enforce_data_integrity(strict_mode=True)
+        @enforce_data_integrity(strict_mode=True, anti_mock=True)
         class MyModule(DataIntegrityModule):
             pass
     """
@@ -477,17 +498,26 @@ def no_mock_data(enforcement_level: str = "error"):
 def module_health_check(check_function: Callable = None, interval: int = 300):
     """
     Register a health check function for the module.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Args:
-        check_function: Function to call for health checks
+        check_function: Function to call for health checks, or None for default health check
         interval: Check interval in seconds
-        
+
     Example:
-        @module_health_check(interval=60)
+        # Module with custom health check:
+        @module_health_check(check_function="check_health", interval=60)
         class MyModule(DataIntegrityModule):
-            async def health_check(self):
-                # Health check logic
-                return True
+            async def check_health(self):
+                # Custom health check logic
+                return {"healthy": True, "checks": [...]}
+
+        # Module with default health check (mandatory decorator with None):
+        @module_health_check(check_function=None)
+        class MyModule(DataIntegrityModule):
+            # Uses default health check (returns module healthy if running)
+            pass
     """
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
@@ -590,28 +620,30 @@ def validate_decorator_integrity(cls) -> Dict[str, Any]:
 # SHUTDOWN MANAGEMENT DECORATORS
 # ============================================================================
 
-def graceful_shutdown(method: str = "shutdown", timeout: int = 30, 
+def graceful_shutdown(method: str = "cleanup_resources", timeout: int = 30,
                      priority: int = 100, dependencies: Optional[List[str]] = None):
     """
     Register a method for graceful async shutdown with centralized logging.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     This decorator eliminates the need for manual shutdown logging in every
     service. The framework handles all logging automatically, and services
     focus only on their cleanup logic.
-    
+
     Args:
-        method: Method name to call for cleanup (default: "shutdown")
-        timeout: Max seconds to wait for shutdown (default: 30)  
+        method: Method name to call for cleanup (default: "cleanup_resources")
+        timeout: Max seconds to wait for shutdown (default: 30)
         priority: Shutdown order priority (lower = earlier, default: 100)
         dependencies: Modules that must shutdown after this one
-        
+
     Example:
-        @graceful_shutdown(method="cleanup_resources", timeout=30, priority=10)
-        class DatabaseModule(DataIntegrityModule):
+        @graceful_shutdown(method="cleanup_resources", timeout=30)
+        class MyModule(DataIntegrityModule):
             async def cleanup_resources(self):
                 # Only cleanup logic here - logging handled automatically
-                await self.close_connections()
-                self.stop_background_tasks()
+                # Add cleanup logic when needed (can be empty for modules with no resources)
+                pass
     """
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
@@ -636,23 +668,26 @@ def graceful_shutdown(method: str = "shutdown", timeout: int = 30,
     
     return decorator
 
-def force_shutdown(method: str = "force_shutdown", timeout: int = 5):
+def force_shutdown(method: str = "force_cleanup", timeout: int = 5):
     """
     Register a method for force synchronous shutdown with centralized logging.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     This decorator handles force shutdown scenarios when graceful shutdown
     fails or times out. Framework provides all logging automatically.
-    
+
     Args:
-        method: Method name to call for force cleanup (default: "force_shutdown")
+        method: Method name to call for force cleanup (default: "force_cleanup")
         timeout: Max seconds to wait for force shutdown (default: 5)
-        
+
     Example:
-        @force_shutdown(method="force_cleanup", timeout=5)  
-        class DatabaseModule(DataIntegrityModule):
+        @force_shutdown(method="force_cleanup", timeout=5)
+        class MyModule(DataIntegrityModule):
             def force_cleanup(self):
                 # Only cleanup logic here - logging handled automatically
-                self.force_close_connections()
+                # Add force cleanup logic when needed (can be empty for modules with no resources)
+                pass
     """
     def decorator(cls):
         metadata = _ensure_module_metadata(cls)
@@ -719,18 +754,20 @@ def shutdown_dependencies(*depends_on: str):
 def inject_dependencies(*dependency_names: str, optional: List[str] = None):
     """
     Automatic dependency injection decorator.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Eliminates the fragile manual app_context passing pattern by automatically
     injecting services into the module constructor. The framework resolves
     dependencies and passes them to __init__().
-    
+
     Args:
-        dependency_names: Names of services to inject (e.g., "app_context", "database_service")
+        dependency_names: Names of services to inject (typically at least "app_context")
         optional: List of dependency names that are optional (won't fail if missing)
-        
+
     Example:
-        @register_service("my_module.service") 
         @inject_dependencies("app_context", "database_service", optional=["settings_service"])
+        @register_service("my_module.service")
         class MyModule(DataIntegrityModule):
             def __init__(self, app_context, database_service, settings_service=None):
                 # Framework automatically provides these - no manual passing needed!
@@ -764,24 +801,28 @@ def inject_dependencies(*dependency_names: str, optional: List[str] = None):
 def initialization_sequence(*method_names: str, phase: str = "phase1"):
     """
     Automatic method calling sequence decorator.
-    
+
+    Required: Yes (all modules must include this decorator for Phase 1)
+
     Eliminates manual service.initialize() calls by automatically calling
     specified methods in order during module initialization.
-    
+
+    CRITICAL: All modules MUST use this for Phase 1 with "setup_infrastructure"
+    method to register Pydantic settings models.
+
     Args:
-        method_names: Names of methods to call in order (e.g., "setup_database", "load_config")
+        method_names: Names of methods to call in order (e.g., "setup_infrastructure", "load_config")
         phase: When to call methods ("phase1" or "phase2")
-        
+
     Example:
+        @initialization_sequence("setup_infrastructure", phase="phase1")
         @register_service("my_module.service")
-        @initialization_sequence("setup_processor", "validate_config", phase="phase1")
-        @initialization_sequence("connect_database", "load_data", phase="phase2") 
         class MyModule(DataIntegrityModule):
-            def setup_processor(self):
-                # Framework calls this automatically in Phase 1
-                
-            def connect_database(self):
-                # Framework calls this automatically in Phase 2
+            def setup_infrastructure(self):
+                # MANDATORY: Framework calls this automatically in Phase 1
+                # Register Pydantic settings model here
+                from .settings import MyModuleSettings
+                self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
     """
     def decorator(cls):
         _ensure_module_metadata(cls)
@@ -804,24 +845,26 @@ def initialization_sequence(*method_names: str, phase: str = "phase1"):
 def phase2_operations(*method_names: str, dependencies: List[str] = None, priority: int = 100):
     """
     Phase 2 operations automation decorator.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Eliminates manual post-init hook registration by automatically scheduling
     methods to run in Phase 2 with proper dependencies and priority.
-    
+
     Args:
-        method_names: Names of methods to call during Phase 2
+        method_names: Names of methods to call during Phase 2 (use "initialize_phase2" as standard)
         dependencies: List of other modules/services this depends on
         priority: Priority for Phase 2 execution (higher number = later)
-        
+
     Example:
+        @phase2_operations("initialize_phase2", priority=100)
         @register_service("my_module.service")
-        @phase2_operations("connect_database", "load_cache", 
-                          dependencies=["core.database.setup"], 
-                          priority=150)
         class MyModule(DataIntegrityModule):
-            def connect_database(self):
+            async def initialize_phase2(self):
                 # Framework calls this automatically in Phase 2
-                # after core.database.setup completes
+                # All services are available here - can access other services
+                settings_service = self.app_context.get_service("core.settings.service")
+                return True
     """
     def decorator(cls):
         _ensure_module_metadata(cls)
@@ -846,21 +889,24 @@ def phase2_operations(*method_names: str, dependencies: List[str] = None, priori
 def auto_service_creation(service_class: str = None, constructor_args: Dict[str, Any] = None):
     """
     Automatic service instance creation decorator.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     Eliminates manual service instance creation by automatically creating
     service instances with injected dependencies.
-    
+
     Args:
-        service_class: Name of service class to create (defaults to ModuleNameService)
+        service_class: Name of service class to create (e.g., "MyModuleService")
         constructor_args: Additional arguments for service constructor
-        
+
     Example:
-        @register_service("my_module.service")
         @auto_service_creation(service_class="MyModuleService")
-        @inject_dependencies("app_context", "database_service")
+        @inject_dependencies("app_context")
+        @register_service("my_module.service")
         class MyModule(DataIntegrityModule):
-            # Framework automatically creates MyModuleService(app_context, database_service)
+            # Framework automatically creates MyModuleService(app_context)
             # No manual service_instance = MyModuleService() needed!
+            pass
     """
     def decorator(cls):
         _ensure_module_metadata(cls)
@@ -935,10 +981,13 @@ def list_shutdown_modules(module_classes: List[type]) -> List[Dict[str, Any]]:
 def require_services(service_names: List[str]):
     """
     Declare required services from other modules for inter-module communication.
-    
+
+    Required: Yes (all modules must include this decorator)
+
     This decorator enables the new inter-module service communication pattern:
-    
+
     Usage:
+        # Module with service dependencies:
         @require_services(["core.database.service", "core.error_handler.service"])
         @phase2_operations("initialize_with_dependencies")
         class MyModule(DataIntegrityModule):
@@ -946,16 +995,21 @@ def require_services(service_names: List[str]):
                 # Services guaranteed to be available here
                 self.database_service = self.get_required_service("core.database.service")
                 self.error_service = self.get_required_service("core.error_handler.service")
-    
+
+        # Module without service dependencies (mandatory decorator with empty list):
+        @require_services([])
+        class MyModule(DataIntegrityModule):
+            pass
+
     Args:
-        service_names: List of service IDs that this module requires
-        
+        service_names: List of service IDs that this module requires (use empty list [] if no dependencies)
+
     Key Benefits:
         - Explicit dependency declaration
         - Guaranteed service availability in phase2_operations
         - Clear service access pattern
         - LLM-friendly readable code
-        
+
     Implementation:
         - Stores required service names in decorator metadata
         - Framework ensures services are available before phase2_operations

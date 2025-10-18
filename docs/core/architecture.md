@@ -1,6 +1,6 @@
 # Framework Architecture
 
-The Modular Python Framework is designed around three core systems that provide a solid foundation for building scalable applications.
+The Modular Python Framework is designed around a **mandatory-all-decorators architecture** where every module follows identical patterns. This provides a solid foundation for building scalable applications with consistent processing and predictable behavior.
 
 ## Core Systems
 
@@ -73,54 +73,107 @@ modules/standard/my_module/
 ```
 
 ### Module Registration
-Modules use decorators for clean registration:
+Modules use **ALL 12 MANDATORY DECORATORS** for clean, consistent registration:
 
 ```python
-# api.py
-@register_service("my_module.service")
-@register_api_endpoints("router")
-class MyModule(DataIntegrityModule):
+# api.py - ALL modules must have ALL 12 decorators
+@inject_dependencies('app_context')
+@register_service("standard.my_module.service", methods=[...], priority=100)
+@require_services([])  # Empty list if no external services
+@initialization_sequence("setup_infrastructure", phase="phase1")
+@phase2_operations("initialize_phase2")
+@auto_service_creation(service_class="MyModuleService")
+@register_api_endpoints(router_name="router")
+@register_database(database_name=None)  # None if no database
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+@module_health_check(check_function=None)
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+@force_shutdown(method="force_cleanup", timeout=5)
+class MyModuleModule(DataIntegrityModule):
     MODULE_ID = "standard.my_module"
     MODULE_VERSION = "1.0.0"
     MODULE_DESCRIPTION = "My application module"
+
+    def setup_infrastructure(self):
+        """Phase 1: Register Pydantic settings (MANDATORY)"""
+        from .settings import MyModuleSettings
+        self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+
+    async def initialize_phase2(self):
+        """Phase 2: Complex initialization"""
+        return await self.service_instance.initialize()
+
+    async def cleanup_resources(self):
+        """Graceful shutdown cleanup"""
+        await self.service_instance.cleanup_resources()
+
+    def force_cleanup(self):
+        """Emergency shutdown cleanup"""
+        self.service_instance.force_cleanup()
 ```
+
+**CRITICAL:** Missing any decorator will trigger MODULE COMPLIANCE warnings.
 
 ## Two-Phase Initialization
 
 The framework initializes in two distinct phases to handle dependencies properly:
 
-### Phase 1: Registration
-- **Infrastructure setup** - Create directories, configure logging
-- **Service registration** - Register services with the framework
-- **Settings registration** - Register Pydantic v2 configuration models
-- **No service access** - Services are not yet available
+### Phase 1: setup_infrastructure() (MANDATORY)
+- **Settings registration** - Register Pydantic v2 models (REQUIRED for all modules)
+- **Infrastructure setup** - Create directories if needed
+- **NO service access** - Services are not yet available
+- **Synchronous only** - No async operations allowed
 
-### Phase 2: Complex Initialization  
-- **Service dependencies** - Access other framework services
+**CRITICAL:** ALL modules MUST implement `setup_infrastructure()` and register their Pydantic settings model.
+
+### Phase 2: initialize_phase2() (MANDATORY)
+- **Service dependencies** - Access other framework services via `@require_services`
 - **Database operations** - Set up tables, initial data
 - **External connections** - Connect to APIs, external systems
 - **Full framework access** - All services are available
+- **Async operations** - Complex initialization can be asynchronous
 
 ```python
 def setup_infrastructure(self):
-    # Phase 1: Infrastructure only
-    self.logger.info("Setting up module infrastructure")
+    """Phase 1: MANDATORY settings registration"""
+    from .settings import MyModuleSettings
+    self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+    # NO service access allowed here!
 
-async def initialize_service(self):
-    # Phase 2: Access other services
-    settings_service = self.app_context.get_service("core.settings.service")
-    await self.setup_database_tables()
+async def initialize_phase2(self):
+    """Phase 2: Complex initialization with service access"""
+    # Services are available - can access via app_context
+    if self.service_instance:
+        return await self.service_instance.initialize()
+    return False
 ```
 
-## Service Discovery
+## Service Discovery and Processing
 
-The framework automatically discovers and registers services:
+The framework automatically discovers and processes modules through a **14-step centralized pipeline**:
 
-1. **Scan modules** - Find all modules in `modules/core/` and `modules/standard/`
-2. **Load decorators** - Process `@register_service` and `@register_api_endpoints`
-3. **Build dependency graph** - Determine initialization order
-4. **Two-phase initialization** - Register then initialize services
-5. **API routing** - Automatically configure FastAPI routes
+1. **Scan modules** - Find all modules in `modules/core/`, `modules/standard/`, `modules/extensions/`
+2. **Load decorators** - Process ALL 12 mandatory decorators from each module
+3. **Validate compliance** - Check that all 12 decorators are present
+4. **Build dependency graph** - Determine initialization order from `@require_services`
+5. **Process decorators** - Execute 14-step centralized processing:
+   - Validate decorator metadata
+   - Enforce data integrity
+   - Process dependencies
+   - Store service metadata
+   - Register databases/models
+   - Register API endpoints
+   - Setup health checks
+   - Process shutdown metadata
+   - Process dependency injection
+   - Process initialization sequences
+   - Process Phase 2 operations
+   - Process auto service creation
+   - Record success
+6. **Two-phase initialization** - Execute Phase 1 then Phase 2
+7. **API routing** - Automatically configure FastAPI routes
+
+**MODULE COMPLIANCE**: Modules missing decorators will trigger warnings during processing.
 
 ## Application Lifecycle
 

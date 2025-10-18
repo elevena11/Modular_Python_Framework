@@ -289,7 +289,7 @@ class ModuleProcessor:
             integrity_check = validate_decorator_integrity(module_class)
             if not integrity_check['valid']:
                 self.processing_stats['integrity_violations'] += len(integrity_check['violations'])
-                
+
                 return Result.error(
                     code="DECORATOR_INTEGRITY_VIOLATION",
                     message=f"Module {module_id} has decorator integrity violations",
@@ -299,9 +299,16 @@ class ModuleProcessor:
                         'metadata': metadata
                     }
                 )
-            
+
+            # Check decorator completeness (WARNING mode - gradual migration)
+            completeness_check = self._check_decorator_completeness(module_class, module_id, metadata)
+            if completeness_check.get('missing_decorators'):
+                # Log WARNING but don't fail - this is gradual migration
+                missing_list = ', '.join(completeness_check['missing_decorators'])
+                self.logger.warning(f"MODULE COMPLIANCE: {module_id} - Missing decorators: {missing_list}")
+
             self.logger.debug(f"Module {module_id} decorator metadata validated successfully")
-            return Result.success(data={'metadata_valid': True, 'integrity_enforced': True})
+            return Result.success(data={'metadata_valid': True, 'integrity_enforced': True, 'completeness': completeness_check})
             
         except Exception as e:
             return Result.error(
@@ -309,7 +316,45 @@ class ModuleProcessor:
                 message=f"Failed to validate metadata for {module_id}",
                 details={'error': str(e), 'module_id': module_id}
             )
-    
+
+    def _check_decorator_completeness(self, module_class: Type, module_id: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Check if module has all 12 mandatory decorators.
+
+        WARNING MODE: Reports missing decorators but does not fail module loading.
+        This allows gradual migration to mandatory-all-decorators architecture.
+
+        Returns dict with 'missing_decorators' list and 'compliance' boolean.
+        """
+        required_decorators = {
+            'inject_dependencies': lambda m: m.get('dependencies', {}).get('injection') is not None,
+            'register_service': lambda m: len(m.get('services', [])) > 0,
+            'require_services': lambda m: 'required_services' in m or len(m.get('dependencies', {}).get('modules', [])) > 0,
+            'initialization_sequence': lambda m: m.get('initialization') is not None,
+            'phase2_operations': lambda m: m.get('phase2') is not None and 'operations' in m['phase2'],
+            'auto_service_creation': lambda m: m.get('service_creation') is not None and 'auto' in m['service_creation'],
+            'register_api_endpoints': lambda m: len(m.get('api_endpoints', [])) > 0,
+            'register_database': lambda m: len(m.get('databases', [])) > 0,
+            'enforce_data_integrity': lambda m: m.get('data_integrity', {}).get('enforced') is not None,
+            'module_health_check': lambda m: len(m.get('health_checks', [])) > 0,
+            'graceful_shutdown': lambda m: 'shutdown' in m and 'graceful' in m['shutdown'],
+            'force_shutdown': lambda m: 'shutdown' in m and 'force' in m['shutdown']
+        }
+
+        missing_decorators = []
+        for decorator_name, check_func in required_decorators.items():
+            if not check_func(metadata):
+                missing_decorators.append(f"@{decorator_name}")
+
+        is_compliant = len(missing_decorators) == 0
+
+        return {
+            'is_compliant': is_compliant,
+            'missing_decorators': missing_decorators,
+            'total_required': len(required_decorators),
+            'total_present': len(required_decorators) - len(missing_decorators)
+        }
+
     async def _enforce_data_integrity(self, module_class: Type, module_id: str) -> Result:
         """Enforce data integrity requirements on the module."""
         try:

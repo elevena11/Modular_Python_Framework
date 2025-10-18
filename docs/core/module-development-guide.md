@@ -30,101 +30,190 @@ modules/standard/my_module/
 
 ### 1. api.py - Module Entry Point
 
-This is the main file that defines your module:
+This is the main file that defines your module with **ALL 12 MANDATORY DECORATORS**:
 
 ```python
 from core.decorators import (
-    register_service, register_api_endpoints, require_services,
-    phase2_operations, auto_service_creation, inject_dependencies
+    inject_dependencies,
+    register_service,
+    ServiceMethod,
+    ServiceParam,
+    ServiceReturn,
+    ServiceExample,
+    require_services,
+    auto_service_creation,
+    phase2_operations,
+    initialization_sequence,
+    register_api_endpoints,
+    register_database,
+    enforce_data_integrity,
+    module_health_check,
+    graceful_shutdown,
+    force_shutdown
 )
 from core.module_base import DataIntegrityModule
+from core.logging import get_framework_logger
 
+logger = get_framework_logger("standard.my_module")
+
+# MANDATORY: ALL 12 DECORATORS IN CORRECT ORDER
 @inject_dependencies('app_context')
-@register_service("standard.my_module.service", methods=[])
+@register_service("standard.my_module.service", methods=[
+    ServiceMethod(
+        name="initialize",
+        description="Initialize module service with optional settings",
+        params=[ServiceParam("settings", "Dict[str, Any]", required=False)],
+        returns=ServiceReturn("Result", "Result indicating initialization success"),
+        examples=[ServiceExample("initialize()", "Result.success(...)")],
+        tags=["phase2", "initialization"]
+    ),
+    ServiceMethod(
+        name="get_status",
+        description="Get current service status and health information",
+        params=[],
+        returns=ServiceReturn("Result", "Result with service status"),
+        examples=[ServiceExample("get_status()", "Result.success(...)")],
+        tags=["status", "monitoring"]
+    )
+], priority=100)
+@require_services([])  # Empty list if no external services needed
+@initialization_sequence("setup_infrastructure", phase="phase1")
+@phase2_operations("initialize_phase2")
 @auto_service_creation(service_class="MyModuleService")
-@require_services(["core.settings.service", "core.database.service"])
-@phase2_operations("initialize_phase2", priority=100)
 @register_api_endpoints(router_name="router")
-class MyModuleAPI(DataIntegrityModule):
+@register_database(database_name=None)  # None if no database
+@enforce_data_integrity(strict_mode=True, anti_mock=True)
+@module_health_check(check_function=None)
+@graceful_shutdown(method="cleanup_resources", timeout=30)
+@force_shutdown(method="force_cleanup", timeout=5)
+class MyModuleModule(DataIntegrityModule):
     MODULE_ID = "standard.my_module"
     MODULE_VERSION = "1.0.0"
     MODULE_DESCRIPTION = "My application module"
 
     def __init__(self):
         super().__init__()
+        self.service_instance = None
         # app_context injected automatically by @inject_dependencies
 
-    async def initialize_phase2(self):
-        """Phase 2 initialization - access other services here"""
-        # Services guaranteed available via @require_services decorator
-        settings_service = self.get_required_service("core.settings.service")
+    def setup_infrastructure(self):
+        """Phase 1: Register Pydantic settings model (MANDATORY)"""
+        try:
+            from .settings import MyModuleSettings
+            self.app_context.register_pydantic_model(self.MODULE_ID, MyModuleSettings)
+            logger.info(f"{self.MODULE_ID}: Pydantic settings model registered")
+        except Exception as e:
+            logger.warning(f"{self.MODULE_ID}: Error registering Pydantic model: {e}")
 
+    async def initialize_phase2(self):
+        """Phase 2: Initialize with guaranteed service access"""
+        # Services guaranteed available via @require_services decorator
         # Service is available as self.service_instance (created by @auto_service_creation)
         if self.service_instance:
             result = await self.service_instance.initialize()
-            return result.success
+            return result
         return False
+
+    async def cleanup_resources(self):
+        """Graceful shutdown - cleanup resources"""
+        if self.service_instance and hasattr(self.service_instance, 'cleanup_resources'):
+            await self.service_instance.cleanup_resources()
+
+    def force_cleanup(self):
+        """Force shutdown - emergency cleanup"""
+        if self.service_instance and hasattr(self.service_instance, 'force_cleanup'):
+            self.service_instance.force_cleanup()
 ```
 
-**Key decorators:**
-- `@inject_dependencies('app_context')` - Injects app_context into constructor
-- `@register_service()` - Registers service with the framework
-- `@auto_service_creation()` - Automatically creates service instance
-- `@require_services()` - Declares service dependencies for safe access
-- `@phase2_operations()` - Defines Phase 2 initialization (standardized to "initialize_phase2")
-- `@register_api_endpoints()` - Registers API routes with FastAPI
+**CRITICAL: ALL 12 DECORATORS ARE MANDATORY**
+1. `@inject_dependencies('app_context')` - Injects app_context into constructor
+2. `@register_service(...)` - Registers service with full method documentation
+3. `@require_services([...])` - Declares service dependencies (empty list if none)
+4. `@initialization_sequence("setup_infrastructure", phase="phase1")` - Phase 1 settings registration
+5. `@phase2_operations("initialize_phase2")` - Phase 2 complex initialization
+6. `@auto_service_creation(service_class="...")` - Automatically creates service instance
+7. `@register_api_endpoints(router_name="router")` - Registers API routes
+8. `@register_database(database_name=...)` - Database registration (None if no database)
+9. `@enforce_data_integrity(strict_mode=True, anti_mock=True)` - Integrity checks
+10. `@module_health_check(check_function=None)` - Health monitoring
+11. `@graceful_shutdown(method="cleanup_resources", timeout=30)` - Async cleanup
+12. `@force_shutdown(method="force_cleanup", timeout=5)` - Sync force cleanup
 
-**New standardized patterns:**
-- **Phase 2 method name**: Always use `initialize_phase2()` (not `initialize_service()`)
-- **Service access**: Use `self.get_required_service()` with `@require_services` decorator
-- **Priority system**: Lower numbers = earlier initialization (database=5, settings=10, app=100)
-- **Error logging**: Use `error_message()` for critical errors that need structured tracking
+**Framework Standards:**
+- **Mandatory-All-Decorators**: Every module must have all 12 decorators
+- **Phase 1 Required**: Must implement `setup_infrastructure()` for settings registration
+- **Service Methods**: Define comprehensive service interface with ServiceMethod
+- **Cleanup Methods**: Must implement both `cleanup_resources()` and `force_cleanup()`
+- **Use Scaffolding Tool**: Generate compliant modules automatically
 
 ### 2. services.py - Business Logic
 
-Contains your module's main service class:
+Contains your module's main service class with proper lifecycle methods:
 
 ```python
 from core.error_utils import Result, error_message
-from core.decorators import service_method
-import logging
+from core.logging import get_framework_logger
+from typing import Dict, Any
+
+MODULE_ID = "standard.my_module"
+logger = get_framework_logger(MODULE_ID)
 
 class MyModuleService:
-    def __init__(self, app_context):
-        self.app_context = app_context
-        self.logger = logging.getLogger("standard.my_module")
+    """Main service for the my_module module."""
 
-    async def initialize(self) -> Result:
-        """Initialize the service"""
+    def __init__(self, app_context=None):
+        """Initialize with dependency injection."""
+        self.app_context = app_context
+        self.initialized = False
+        self.logger = logger
+
+        logger.info(f"{MODULE_ID} service created")
+
+    async def initialize(self) -> bool:
+        """Phase 2 initialization - set up with provided services"""
+        if self.initialized:
+            return True
+
+        logger.info(f"Initializing {MODULE_ID} service")
+
         try:
             # Your initialization logic here
-            self.logger.info("MyModule service initialized")
-            return Result.success(data={"initialized": True})
+            # Example: Load settings, setup connections, etc.
+
+            self.initialized = True
+            logger.info(f"{MODULE_ID} service initialized")
+            return True
+
         except Exception as e:
-            # Use structured error logging for critical initialization errors
-            self.logger.error(error_message(
-                module_id="standard.my_module",
-                error_type="INITIALIZATION_FAILED",
-                details=f"Failed to initialize MyModule service: {str(e)}",
-                location="MyModuleService.initialize()",
-                context={"error": str(e)}
+            logger.error(error_message(
+                module_id=MODULE_ID,
+                error_type="INIT_ERROR",
+                details=f"Error during initialization: {str(e)}",
+                location="initialize()"
             ))
-            return Result.error(
-                code="INITIALIZATION_FAILED",
-                message="Failed to initialize MyModule service",
-                details={"error": str(e)}
-            )
-    
-    @service_method(
-        description="Get module status",
-        returns={"type": "Result", "description": "Module status information"}
-    )
+            return False
+
     async def get_status(self) -> Result:
-        """Get current module status"""
+        """Get current service status"""
         return Result.success(data={
-            "status": "active",
+            "status": "active" if self.initialized else "not_initialized",
             "module": "my_module"
         })
+
+    async def cleanup_resources(self):
+        """Graceful shutdown - cleanup resources"""
+        # Close connections, cancel tasks, save state
+        logger.info(f"{MODULE_ID}: Graceful cleanup")
+        self.initialized = False
+
+    def force_cleanup(self):
+        """Force shutdown - emergency cleanup (synchronous)"""
+        # Ignore errors during force cleanup
+        try:
+            logger.info(f"{MODULE_ID}: Force cleanup")
+            self.initialized = False
+        except Exception:
+            pass  # Ignore errors during emergency shutdown
 ```
 
 ### 3. settings.py - Configuration

@@ -24,10 +24,12 @@ from core.decorators import (
     register_service,
     ServiceMethod,
     ServiceParam,
-    ServiceReturn, 
+    ServiceReturn,
     ServiceExample,
     register_api_endpoints,
+    register_database,
     enforce_data_integrity,
+    require_services,
     module_health_check,
     graceful_shutdown,
     force_shutdown,
@@ -213,9 +215,11 @@ from .api_schemas import (
 ], priority=15)  # CRUD operations service
 @inject_dependencies("app_context")
 @auto_service_creation(service_class="DatabaseService")
+@require_services([])
 @initialization_sequence("setup_foundation", "create_crud_service", phase="phase1")
 @phase2_operations("initialize_phase2", priority=5)
 @register_api_endpoints(router_name="router")
+@register_database(database_name=None)
 @enforce_data_integrity(strict_mode=True, anti_mock=True)
 @module_health_check(interval=300)
 @graceful_shutdown(method="cleanup_resources", timeout=30, priority=10)
