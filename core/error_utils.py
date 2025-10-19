@@ -113,9 +113,45 @@ class Result:
         
         if details:
             error_info["details"] = details
-            
+
         return cls(success=False, error=error_info)
-    
+
+    @property
+    def code(self):
+        """
+        Get error code (for errors) or None (for success).
+
+        Provides intuitive access: result.code instead of result.error.get("code")
+
+        Returns:
+            str: Error code if this is an error result, None if success
+        """
+        return self.error.get("code") if not self.success else None
+
+    @property
+    def message(self):
+        """
+        Get error message (for errors) or None (for success).
+
+        Provides intuitive access: result.message instead of result.error.get("message")
+
+        Returns:
+            str: Error message if this is an error result, None if success
+        """
+        return self.error.get("message") if not self.success else None
+
+    @property
+    def details(self):
+        """
+        Get error details (for errors) or None (for success).
+
+        Provides intuitive access: result.details instead of result.error.get("details")
+
+        Returns:
+            Any: Error details if this is an error result, None if success
+        """
+        return self.error.get("details") if not self.success else None
+
     def __str__(self):
         """String representation of the Result."""
         if self.success:

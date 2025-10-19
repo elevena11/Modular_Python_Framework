@@ -389,6 +389,171 @@ await model_manager.task(
 
 ---
 
+## High-Throughput Batch Processing
+
+### Understanding the Queue System
+
+When you call `model_manager.task()`, the request is submitted to a **per-model queue** that workers continuously pull from:
+
+```
+┌─────────────────────────────────────────────────┐
+│  Your Code                                      │
+│  ↓                                              │
+│  task() calls → Model Queue → Workers (GPUs)   │
+│                    ↓              ↓             │
+│                  [Task1]      Worker 1 (GPU 0)  │
+│                  [Task2]      Worker 2 (GPU 1)  │
+│                  [Task3]                        │
+│                  [...]                          │
+└─────────────────────────────────────────────────┘
+```
+
+**Critical Insight**: Workers only process when the queue has work. Sequential `await` creates **gaps** where GPUs sit idle.
+
+### Sequential vs Concurrent Processing
+
+#### ❌ INEFFICIENT: Sequential (~50% GPU Utilization)
+
+```python
+# BAD: Creates gaps between tasks
+for doc in documents:
+    result = await model_manager.task(
+        task_data=[doc],
+        task_type="embedding",
+        model_name="mixedbread-ai/mxbai-embed-large-v1",
+        num_workers=2
+    )
+    # ↑ GPUs idle while waiting here
+    await store_embedding(result)
+```
+
+**GPU utilization**: ~50% (workers frequently idle waiting for next task)
+
+#### ✅ EFFICIENT: Concurrent (90%+ GPU Utilization)
+
+```python
+# GOOD: Floods queue, keeps GPUs saturated
+import asyncio
+
+batch_size = 15
+batches = [documents[i:i+batch_size] for i in range(0, len(documents), batch_size)]
+
+# Submit ALL batches at once
+tasks = [
+    model_manager.task(
+        task_data=batch,
+        task_type="embedding",
+        model_name="mixedbread-ai/mxbai-embed-large-v1",
+        num_workers=2
+    )
+    for batch in batches
+]
+
+# Workers pull continuously from full queue
+results = await asyncio.gather(*tasks, return_exceptions=True)
+```
+
+**GPU utilization**: 90%+ (workers continuously busy)
+
+### Performance Impact
+
+The difference in GPU utilization is dramatic:
+
+```
+Sequential: [██----][██----][██----]  50% utilized (gaps between tasks)
+Concurrent: [██████][██████][██████]  90%+ utilized (continuous work)
+```
+
+**Real impact**: ~3-4x speedup for large datasets by eliminating idle time.
+
+### Batch Size Guidelines
+
+| Model Type | Recommended Batch Size | Rationale |
+|------------|----------------------|-----------|
+| **Small** (< 512 dim) | 20-30 docs | Low VRAM, fast inference |
+| **Large** (> 1024 dim) | 10-15 docs | High VRAM, slower inference |
+| **Default** | 15 docs | Good balance for most models |
+
+### Common Mistakes to Avoid
+
+```python
+# ❌ DON'T: Sequential await (creates gaps)
+for batch in batches:
+    result = await model_manager.task(...)
+    process(result)
+
+# ❌ DON'T: Batch size = 1 (too much overhead)
+batch_size = 1
+
+# ❌ DON'T: Batch size = all docs (no concurrency)
+batch_size = len(documents)
+
+# ✅ DO: Concurrent batches with asyncio.gather()
+results = await asyncio.gather(*[
+    model_manager.task(task_data=batch, ...)
+    for batch in batches
+])
+```
+
+### Production Example
+
+```python
+import asyncio
+from typing import List, Dict, Any
+from core.error_utils import Result
+
+async def embed_documents_efficiently(
+    documents: List[Dict[str, Any]],
+    model_manager,
+    batch_size: int = 15
+) -> Result:
+    """Process documents with optimal GPU utilization."""
+
+    # Create batches
+    batches = [
+        documents[i:i+batch_size]
+        for i in range(0, len(documents), batch_size)
+    ]
+
+    # Submit all batches concurrently (floods queue)
+    tasks = [
+        model_manager.task(
+            task_data=[doc["text"] for doc in batch],
+            task_type="embedding",
+            model_name="mixedbread-ai/mxbai-embed-large-v1",
+            num_workers=2,
+            device="gpu"
+        )
+        for batch in batches
+    ]
+
+    # Process concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Collect embeddings
+    all_embeddings = []
+    for batch_idx, result in enumerate(results):
+        if isinstance(result, Exception):
+            logger.error(f"Batch {batch_idx} failed: {result}")
+            continue
+
+        if result.success:
+            embeddings = result.data.get("embeddings", [])
+            batch_docs = batches[batch_idx]
+
+            for doc, emb in zip(batch_docs, embeddings):
+                all_embeddings.append({
+                    "document_id": doc["id"],
+                    "embedding": emb
+                })
+
+    return Result.success(data={"embeddings": all_embeddings})
+```
+
+**Key Takeaway**: Use `asyncio.gather()` to flood the queue and achieve 90%+ GPU utilization instead of ~50% with sequential processing.
+
+---
+
 ## Complete Example Module
 
 Here's a complete module using the unified task() API:
