@@ -26,8 +26,8 @@ async def create_user_endpoint():
     if not result.success:
         raise create_error_response(
             module_id="user.service",
-            code="CREATE_FAILED", 
-            message=result.error["message"]
+            code=result.code or "CREATE_FAILED",
+            message=result.message or "User creation failed"
         )
     return result.data
 ```
@@ -105,19 +105,25 @@ result = create_user("John", "john@example.com")
 if result.success:
     print(f"User created: {result.data}")
 else:
-    print(f"Error: {result.message} (Code: {result.error_code})")
+    print(f"Error: {result.message} (Code: {result.code})")
 ```
 
 ### Result Properties
 
 ```python
 class Result:
+    # Core attributes
     success: bool          # True if operation succeeded
     data: Any             # Success data (None if error)
-    error_code: str       # Error code (None if success)
-    message: str          # Human-readable message
-    details: dict         # Additional error context
-    timestamp: datetime   # When the result was created
+    error: dict           # Error dictionary with code, message, details (empty if success)
+
+    # Intuitive property access (NEW)
+    @property
+    code: str             # Error code (None if success)
+    @property
+    message: str          # Error message (None if success)
+    @property
+    details: Any          # Error details (None if success)
 ```
 
 ### Creating Results
@@ -376,7 +382,7 @@ class UserManagerModule(DataIntegrityModule):
     
     def result_to_http_exception(self, result: Result) -> HTTPException:
         """Convert Result error to appropriate HTTP exception."""
-        
+
         # Map error codes to HTTP status codes
         status_code_map = {
             "USER_NOT_FOUND": 404,
@@ -390,20 +396,20 @@ class UserManagerModule(DataIntegrityModule):
             "DATABASE_ERROR": 500,
             "UPDATE_FAILED": 500
         }
-        
-        status_code = status_code_map.get(result.error_code, 500)
-        
+
+        status_code = status_code_map.get(result.code, 500)
+
         # Create detailed error response
         detail = {
-            "error_code": result.error_code,
+            "error_code": result.code,
             "message": result.message,
-            "timestamp": result.timestamp.isoformat()
+            "timestamp": datetime.now().isoformat()
         }
-        
+
         # Include details in development mode
         if self.debug_mode and result.details:
             detail["details"] = result.details
-        
+
         return HTTPException(status_code=status_code, detail=detail)
 ```
 
@@ -433,7 +439,7 @@ async def create_user_with_profile(self, name: str, email: str, bio: str) -> Res
             "Failed to create user profile, user creation rolled back",
             details={
                 "user_creation": "success",
-                "profile_error": profile_result.error_code,
+                "profile_error": profile_result.code,
                 "profile_message": profile_result.message
             }
         )
@@ -468,17 +474,17 @@ async def get_user_summary(self, user_id: int) -> Result:
     if isinstance(user_result, Result) and user_result.success:
         data["user"] = user_result.data
     else:
-        errors.append({"source": "user", "error": user_result.error_code if isinstance(user_result, Result) else str(user_result)})
-    
+        errors.append({"source": "user", "error": user_result.code if isinstance(user_result, Result) else str(user_result)})
+
     if isinstance(orders_result, Result) and orders_result.success:
         data["orders"] = orders_result.data
     else:
-        errors.append({"source": "orders", "error": orders_result.error_code if isinstance(orders_result, Result) else str(orders_result)})
-    
+        errors.append({"source": "orders", "error": orders_result.code if isinstance(orders_result, Result) else str(orders_result)})
+
     if isinstance(preferences_result, Result) and preferences_result.success:
         data["preferences"] = preferences_result.data
     else:
-        errors.append({"source": "preferences", "error": preferences_result.error_code if isinstance(preferences_result, Result) else str(preferences_result)})
+        errors.append({"source": "preferences", "error": preferences_result.code if isinstance(preferences_result, Result) else str(preferences_result)})
     
     # If user data failed, it's a critical error
     if "user" not in data:
