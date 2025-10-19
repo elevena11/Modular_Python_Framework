@@ -72,7 +72,7 @@ class EmbeddingCache:
             # All texts found in cache
             if len(cached_embeddings) == len(text_list):
                 return Result.success(data={
-                    "embeddings": cached_embeddings[0] if len(cached_embeddings) == 1 else cached_embeddings,
+                    "embeddings": cached_embeddings,
                     "model_id": model_id,
                     "cached": True,
                     "cache_hits": cache_hits
