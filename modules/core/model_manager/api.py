@@ -324,8 +324,8 @@ async def get_service_status(service = Depends(get_model_service())):
             raise HTTPException(
                 status_code=500,
                 detail=ErrorResponse(
-                    code=status_result.error.get("code", "STATUS_ERROR"),
-                    message=f"Failed to get service status: {status_result.error.get('message', 'Unknown error')}"
+                    code=status_result.code or "STATUS_ERROR",
+                    message=f"Failed to get service status: {status_result.message or 'Unknown error'}"
                 ).dict()
             )
         

@@ -286,9 +286,9 @@ async def get_active_modules(request: Request):
                 status_code=500,
                 detail=create_error_response(
                     module_id=MODULE_ID,
-                    code=result.error.get("code", "UNKNOWN_ERROR"),
-                    message=result.error.get("message", "Unknown error occurred"),
-                    details=result.error.get("details")
+                    code=result.code or "UNKNOWN_ERROR",
+                    message=result.message or "Unknown error occurred",
+                    details=result.details
                 )
             )
 

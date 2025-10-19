@@ -230,10 +230,10 @@ def render_main_tab(ui_context):
             # Display structured error information
             st.error("Operation failed")
             with st.expander("Error Details"):
-                st.code(result.error.get('code', 'UNKNOWN_ERROR'))
-                st.write(result.error.get('message', 'No error message'))
-                if 'details' in result.error:
-                    st.json(result.error['details'])
+                st.code(result.code or 'UNKNOWN_ERROR')
+                st.write(result.message or 'No error message')
+                if result.details:
+                    st.json(result.details)
     
     except Exception as e:
         st.error(f"UI Error: {str(e)}")
