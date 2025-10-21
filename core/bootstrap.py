@@ -166,20 +166,19 @@ def _create_databases_standalone(discovered_databases):
         
         for database_name, table_names in discovered_databases.items():
             database_path = get_data_path("database", f"{database_name}.db")
-            
-            # Skip if database already exists
-            if os.path.exists(database_path):
-                logger.info(f"Bootstrap: Database {database_name} already exists, skipping")
-                continue
-            
-            # Create SQLite database
+
+            # Check if database exists (for logging purposes)
+            database_exists = os.path.exists(database_path)
+
+            # Create SQLite database engine (works for both new and existing databases)
             engine = create_engine(f"sqlite:///{database_path}")
-            
+
             # Import and create tables using database infrastructure
+            # SQLAlchemy's create_all() has checkfirst=True by default, so it only creates missing tables
             try:
                 from modules.core.database.database_infrastructure import get_database_metadata
                 metadata = get_database_metadata(database_name)
-                
+
                 if len(metadata.tables) == 0:
                     logger.warning(error_message(
                         module_id="core.bootstrap",
@@ -187,15 +186,21 @@ def _create_databases_standalone(discovered_databases):
                         details=f"No tables found for database {database_name}",
                         location="_create_databases_standalone()"
                     ))
-                    # Fall back to creating empty database
+                    # Create empty database if needed
                     with engine.connect() as conn:
                         empty_metadata = MetaData()
                         empty_metadata.create_all(engine)
-                    logger.info(f"Bootstrap: Created empty database {database_name} (no tables found)")
+                    if database_exists:
+                        logger.info(f"Bootstrap: Verified database {database_name} (no tables found)")
+                    else:
+                        logger.info(f"Bootstrap: Created empty database {database_name} (no tables found)")
                 else:
-                    # Create all tables
+                    # Create all tables (only creates missing ones due to checkfirst=True default)
                     metadata.create_all(engine)
-                    logger.info(f"Bootstrap: Created database {database_name} with {len(metadata.tables)} tables")
+                    if database_exists:
+                        logger.info(f"Bootstrap: Verified/updated database {database_name} with {len(metadata.tables)} tables")
+                    else:
+                        logger.info(f"Bootstrap: Created database {database_name} with {len(metadata.tables)} tables")
                 
             except Exception as schema_error:
                 logger.warning(error_message(
